@@ -3,7 +3,6 @@ import {
   MailIcon,
   PhoneIcon,
   MapPinIcon,
-  ClockIcon,
   SendIcon,
   CheckCircleIcon } from
 'lucide-react';
@@ -66,10 +65,10 @@ export function Contact() {
                 <h3 className="text-lg font-bold text-slate-800 mb-2">Phone</h3>
                 <p className="text-slate-600 mb-2">Mon-Fri from 8am to 6pm</p>
                 <a
-                  href="tel:+441234567890"
+                  href="tel:+923341808510"
                   className="text-orange-500 font-semibold hover:text-orange-600 transition-colors">
 
-                  +44 123 456 7890
+                  +92 334 1808510
                 </a>
               </div>
 
@@ -82,42 +81,13 @@ export function Contact() {
                   We'll respond within 24 hours
                 </p>
                 <a
-                  href="mailto:hello@bearfast.co.uk"
+                  href="mailto:bearfastcouriers@gmail.com"
                   className="text-orange-500 font-semibold hover:text-orange-600 transition-colors">
 
-                  hello@bearfast.co.uk
+                  bearfastcouriers@gmail.com
                 </a>
               </div>
 
-              <div className="bg-white rounded-xl p-6 shadow-md">
-                <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mb-4">
-                  <MapPinIcon className="w-6 h-6 text-orange-500" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">
-                  Office
-                </h3>
-                <p className="text-slate-600">
-                  123 Courier Street
-                  <br />
-                  London, EC1A 1BB
-                  <br />
-                  United Kingdom
-                </p>
-              </div>
-
-              <div className="bg-white rounded-xl p-6 shadow-md">
-                <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mb-4">
-                  <ClockIcon className="w-6 h-6 text-orange-500" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">Hours</h3>
-                <p className="text-slate-600">
-                  Monday - Friday: 8am - 6pm
-                  <br />
-                  Saturday: 9am - 4pm
-                  <br />
-                  Sunday: Closed
-                </p>
-              </div>
             </div>
 
             {/* Contact Form */}
@@ -279,15 +249,15 @@ export function Contact() {
             </div>
           </div>
 
-          {/* Map Placeholder */}
-          <div className="mt-12 bg-slate-200 rounded-xl h-80 flex items-center justify-center">
-            <div className="text-center">
-              <MapPinIcon className="w-12 h-12 text-slate-400 mx-auto mb-2" />
-              <p className="text-slate-500 font-medium">Map Integration</p>
-              <p className="text-sm text-slate-400">
-                123 Courier Street, London
-              </p>
-            </div>
+          {/* Map */}
+          <div className="mt-12 rounded-xl overflow-hidden shadow-md h-80 bg-slate-200">
+            <iframe
+              title="Pakistan Map"
+              src="https://www.google.com/maps?q=Pakistan&output=embed"
+              className="w-full h-full border-0"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
           </div>
         </div>
       </section>

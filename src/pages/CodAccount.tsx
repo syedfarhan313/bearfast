@@ -3,37 +3,33 @@ import React from 'react';
 const packages = [
   {
     name: 'Silver',
+    code: 'SC',
     base: 3000,
     charges: 800,
-    accent: 'from-slate-900/80 via-slate-700 to-slate-900/80',
-    image: '/WhatsApp Image 2026-02-20 at 2.52.04 PM.jpeg'
+    accent: 'from-slate-900/90 via-slate-700 to-slate-900/90'
   },
   {
     name: 'Gold',
+    code: 'GC',
     base: 6500,
     charges: 800,
-    accent: 'from-amber-500/80 via-amber-400 to-orange-500/80',
-    image: '/WhatsApp Image 2026-02-20 at 2.52.05 PM.jpeg'
+    accent: 'from-amber-500/90 via-amber-400 to-orange-500/90'
   },
   {
     name: 'Diamond',
+    code: 'DC',
     base: 9000,
     charges: 800,
-    accent: 'from-sky-500/80 via-indigo-500 to-blue-700/80',
-    image: '/WhatsApp Image 2026-02-20 at 2.52.05 PM (1).jpeg'
+    accent: 'from-sky-500/90 via-indigo-500 to-blue-700/90'
   },
   {
     name: 'Executive',
+    code: 'EC',
     base: 12000,
     charges: 800,
-    accent: 'from-rose-500/80 via-pink-500 to-red-600/80',
-    image: '/WhatsApp Image 2026-02-20 at 2.52.04 PM.jpeg'
+    accent: 'from-rose-500/90 via-pink-500 to-red-600/90'
   }
 ];
-
-const WHATSAPP_NUMBER = '923341808510';
-const WHATSAPP_MESSAGE = 'I want to open a COD account.';
-const whatsappLink = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(WHATSAPP_MESSAGE)}`;
 
 export function CodAccount() {
   return (
@@ -45,13 +41,10 @@ export function CodAccount() {
               Packages + Charges
             </p>
             <h1 className="text-4xl lg:text-5xl font-black text-slate-900 mt-3">
-              COD Account
+              COD Account Plans
             </h1>
             <p className="text-base lg:text-lg text-slate-600 mt-4 max-w-2xl mx-auto">
-              A COD account lets your customers pay cash at delivery while we
-              collect, record, and settle payments with your business on time.
-              It is designed for e-commerce sellers who want reliable cash flow
-              and transparent delivery tracking.
+              Explore the COD account packages and charges below.
             </p>
           </div>
 
@@ -61,17 +54,26 @@ export function CodAccount() {
               return (
                 <div
                   key={pack.name}
-                  className="bg-white rounded-3xl border border-slate-200 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.5)] overflow-hidden flex flex-col min-h-[560px]">
+                  className="group relative bg-white rounded-3xl border border-slate-200 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.55)] overflow-hidden flex flex-col transform-gpu transition duration-300 hover:-translate-y-2 hover:shadow-[0_30px_70px_-40px_rgba(15,23,42,0.7)]">
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/70 via-white/0 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                   <div
-                    className={`h-48 bg-gradient-to-br ${pack.accent} relative`}>
-                    <img
-                      src={pack.image}
-                      alt={`${pack.name} COD card`}
-                      className="absolute inset-0 h-full w-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 via-transparent to-white/10" />
-                    <div className="absolute inset-0 flex items-end p-4">
-                      <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/90 drop-shadow">
+                    className={`relative h-44 bg-gradient-to-br ${pack.accent} overflow-hidden`}>
+                    <div className="absolute -top-10 -left-10 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
+                    <div className="absolute -bottom-12 -right-8 h-40 w-40 rounded-full bg-black/30 blur-3xl" />
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.45),transparent_55%)]" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="relative h-20 w-20">
+                        <div className="absolute inset-0 rounded-full border border-white/45 animate-pulse-ring" />
+                        <div className="absolute -inset-3 rounded-full border border-white/25 border-dashed animate-spin [animation-duration:18s]" />
+                        <div className="relative h-20 w-20 rounded-full bg-white/20 backdrop-blur border border-white/50 shadow-[inset_0_0_22px_rgba(255,255,255,0.35)] flex items-center justify-center">
+                          <span className="text-white text-lg font-black tracking-[0.35em] ml-1">
+                            {pack.code}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="absolute inset-x-0 bottom-3 flex items-center justify-center">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.4em] text-white/90 drop-shadow">
                         {pack.name} Card
                       </span>
                     </div>
@@ -93,29 +95,18 @@ export function CodAccount() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-500">
-                          Card + Form Charges
-                        </span>
+                        <span className="text-slate-500">Card + Form Charges</span>
                         <span className="font-semibold text-slate-800">
                           Rs. {pack.charges}
                         </span>
                       </div>
                       <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-                        <span className="text-slate-700 font-semibold">
-                          Total
-                        </span>
+                        <span className="text-slate-700 font-semibold">Total</span>
                         <span className="text-lg font-black text-slate-900">
                           Rs. {total}
                         </span>
                       </div>
                     </div>
-                    <a
-                      href={whatsappLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-auto w-full px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-colors text-center">
-                      Open COD Account
-                    </a>
                   </div>
                 </div>
               );

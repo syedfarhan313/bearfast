@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ZapIcon, MailIcon, PhoneIcon, MapPinIcon } from 'lucide-react';
+import { ZapIcon, MailIcon, PhoneIcon, MapPinIcon, MusicIcon } from 'lucide-react';
 export function Footer() {
   return (
     <footer className="bg-slate-800 text-white">
@@ -21,7 +21,31 @@ export function Footer() {
             </p>
             <div className="flex gap-4">
               <a
-                href="#"
+                href="https://www.tiktok.com/@bearfastcouriers2025?_r=1&_t=ZS-9484wxNCb9F"
+                className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center hover:bg-orange-500 transition-colors"
+                aria-label="TikTok"
+                target="_blank"
+                rel="noreferrer">
+
+                <MusicIcon className="w-5 h-5" />
+              </a>
+              <a
+                href="https://www.youtube.com/@BEARFASTCOURIERS"
+                className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center hover:bg-orange-500 transition-colors"
+                aria-label="YouTube"
+                target="_blank"
+                rel="noreferrer">
+
+                <svg
+                  className="w-5 h-5"
+                  fill="currentColor"
+                  viewBox="0 0 24 24">
+
+                  <path d="M23.5 6.2a3 3 0 00-2.1-2.1C19.6 3.6 12 3.6 12 3.6s-7.6 0-9.4.5A3 3 0 00.5 6.2 31.3 31.3 0 000 12a31.3 31.3 0 00.5 5.8 3 3 0 002.1 2.1c1.8.5 9.4.5 9.4.5s7.6 0 9.4-.5a3 3 0 002.1-2.1A31.3 31.3 0 0024 12a31.3 31.3 0 00-.5-5.8zM9.6 15.6V8.4l6.4 3.6-6.4 3.6z" />
+                </svg>
+              </a>
+              <a
+                href="https://www.facebook.com/BEARFASTCOURIERS"
                 className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center hover:bg-orange-500 transition-colors"
                 aria-label="Facebook">
 
@@ -107,14 +131,10 @@ export function Footer() {
             <h3 className="text-lg font-bold mb-4">Services</h3>
             <ul className="space-y-3">
               <li>
-                <span className="text-slate-400 text-sm">
-                  Same Day Delivery
-                </span>
+                <span className="text-slate-400 text-sm">Same Delivery</span>
               </li>
               <li>
-                <span className="text-slate-400 text-sm">
-                  Nest Day Delivery
-                </span>
+                <span className="text-slate-400 text-sm">Nest Delivery</span>
               </li>
               <li>
                 <span className="text-slate-400 text-sm">

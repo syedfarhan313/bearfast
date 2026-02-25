@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   SearchIcon,
   PackageIcon,
@@ -16,27 +17,40 @@ import {
   getBooking
 } from '../utils/bookingStore';
 export function Tracking() {
+  const location = useLocation();
   const [trackingNumber, setTrackingNumber] = useState('');
   const [isTracking, setIsTracking] = useState(false);
   const [booking, setBooking] = useState<Booking | null>(null);
   const [notFound, setNotFound] = useState(false);
 
-  const handleTrack = () => {
-    if (trackingNumber.trim()) {
-      setIsTracking(true);
-      setTimeout(() => {
-        const found = getBooking(trackingNumber.trim());
-        setIsTracking(false);
-        if (found) {
-          setBooking(found);
-          setNotFound(false);
-        } else {
-          setBooking(null);
-          setNotFound(true);
-        }
-      }, 700);
-    }
+  const trackNumber = (value: string) => {
+    if (!value.trim()) return;
+    setIsTracking(true);
+    setTimeout(() => {
+      const found = getBooking(value.trim());
+      setIsTracking(false);
+      if (found) {
+        setBooking(found);
+        setNotFound(false);
+      } else {
+        setBooking(null);
+        setNotFound(true);
+      }
+    }, 700);
   };
+
+  const handleTrack = () => {
+    trackNumber(trackingNumber);
+  };
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const param = params.get('tracking');
+    if (param) {
+      setTrackingNumber(param);
+      trackNumber(param);
+    }
+  }, [location.search]);
   return (
     <main className="w-full pt-20 min-h-screen bg-slate-50">
       {/* Hero */}

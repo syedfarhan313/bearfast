@@ -69,8 +69,23 @@ export function Navbar() {
             )}
           </div>
 
-          {/* CTA Button */}
-          <div className="hidden lg:block">
+          {/* CTA Buttons */}
+          <div className="hidden lg:flex items-center gap-3">
+            <Link
+              to="/admin?tab=cod"
+              className="inline-flex items-center px-5 py-2.5 bg-emerald-500 text-white text-sm font-semibold rounded-full hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-200">
+              Admin Panel
+            </Link>
+            <Link
+              to="/cod-registration"
+              className="inline-flex items-center px-5 py-2.5 bg-red-500 text-white text-sm font-semibold rounded-full hover:bg-red-600 transition-colors shadow-lg shadow-red-200">
+              Registration
+            </Link>
+            <Link
+              to="/cod-registration?signin=1"
+              className="inline-flex items-center px-5 py-2.5 bg-amber-400 text-slate-900 text-sm font-semibold rounded-full hover:bg-amber-500 transition-colors shadow-lg shadow-amber-200">
+              Sign In
+            </Link>
             <Link
               to="/book"
               className="inline-flex items-center px-5 py-2.5 bg-orange-500 text-white text-sm font-semibold rounded-full hover:bg-orange-600 transition-colors shadow-lg shadow-orange-200">
@@ -108,13 +123,32 @@ export function Navbar() {
                 {link.name}
               </Link>
             )}
-            <Link
-              to="/book"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="mx-4 mt-2 text-center px-5 py-2.5 bg-orange-500 text-white text-sm font-semibold rounded-full hover:bg-orange-600 transition-colors">
-
-              Book a Parcel
-            </Link>
+            <div className="flex flex-col gap-2 px-4 pt-2">
+              <Link
+                to="/admin?tab=cod"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="text-center px-5 py-2.5 bg-emerald-500 text-white text-sm font-semibold rounded-full hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-200">
+                Admin Panel
+              </Link>
+              <Link
+                to="/cod-registration"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="text-center px-5 py-2.5 bg-red-500 text-white text-sm font-semibold rounded-full hover:bg-red-600 transition-colors shadow-lg shadow-red-200">
+                Registration
+              </Link>
+              <Link
+                to="/cod-registration?signin=1"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="text-center px-5 py-2.5 bg-amber-400 text-slate-900 text-sm font-semibold rounded-full hover:bg-amber-500 transition-colors shadow-lg shadow-amber-200">
+                Sign In
+              </Link>
+              <Link
+                to="/book"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="text-center px-5 py-2.5 bg-orange-500 text-white text-sm font-semibold rounded-full hover:bg-orange-600 transition-colors">
+                Book a Parcel
+              </Link>
+            </div>
           </div>
         </div>
       </div>

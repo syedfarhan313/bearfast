@@ -1,5 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import { addBooking, loadBookings } from '../utils/bookingStore';
+import {
+  CodAccountRequest,
+  adjustCodAccountWallet,
+  loadCodSession
+} from '../utils/codAccountStore';
 
 export function BookParcel() {
   const [serviceType, setServiceType] = useState('overnight');
@@ -7,6 +13,12 @@ export function BookParcel() {
   const [trackingId, setTrackingId] = useState('');
   const [deliveryCode, setDeliveryCode] = useState('');
   const [copiedTrackingId, setCopiedTrackingId] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [labelPayload, setLabelPayload] = useState('');
+  const [autoDownloadDone, setAutoDownloadDone] = useState(false);
+  const [sessionAccount, setSessionAccount] =
+    useState<CodAccountRequest | null>(null);
+  const [bookingError, setBookingError] = useState('');
   const [formData, setFormData] = useState({
     senderName: '',
     senderPhone: '',
@@ -22,6 +34,20 @@ export function BookParcel() {
     outOfCity: false,
     codAmount: ''
   });
+
+  useEffect(() => {
+    const session = loadCodSession();
+    if (session) {
+      setSessionAccount(session);
+      setFormData((prev) => ({
+        ...prev,
+        senderName: prev.senderName || session.contactName || session.companyName,
+        senderPhone: prev.senderPhone || session.phone,
+        senderCity: prev.senderCity || session.city || 'Islamabad',
+        senderAddress: prev.senderAddress || session.address
+      }));
+    }
+  }, []);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -102,15 +128,96 @@ export function BookParcel() {
     return `https://wa.me/${number}?text=${message}`;
   };
 
+  const handleDownloadQr = () => {
+    if (!qrDataUrl || !trackingId) return;
+    const link = document.createElement('a');
+    link.download = `bearfast-qr-${trackingId}.png`;
+    link.href = qrDataUrl;
+    link.click();
+  };
+
+  useEffect(() => {
+    if (!isModalOpen || !labelPayload) return;
+    let isActive = true;
+    QRCode.toDataURL(labelPayload, { margin: 1, width: 220 })
+      .then((url) => {
+        if (isActive) setQrDataUrl(url);
+      })
+      .catch(() => {
+        if (isActive) setQrDataUrl('');
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [isModalOpen, labelPayload]);
+
+  useEffect(() => {
+    if (!isModalOpen || autoDownloadDone) return;
+    if (!qrDataUrl || !trackingId) return;
+    const timer = window.setTimeout(() => {
+      handleDownloadQr();
+      setAutoDownloadDone(true);
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [isModalOpen, qrDataUrl, trackingId, autoDownloadDone]);
+
   const handleConfirmBooking = () => {
+    if (sessionAccount && sessionAccount.status !== 'approved') {
+      setBookingError(
+        'Your COD account is not approved yet. Booking is locked until approval.'
+      );
+      return;
+    }
+    setBookingError('');
     const newTrackingId = generateTrackingId(formData.receiverCity);
     const newDeliveryCode = generateDeliveryCode();
     const nowIso = new Date().toISOString();
+    const payloadObject = {
+      trackingId: newTrackingId,
+      deliveryCode: newDeliveryCode,
+      service: selectedService.title,
+      weightKg: Number(weightKg.toFixed(3)),
+      codAmount: formData.codAmount || '0',
+      outOfCity: formData.outOfCity,
+      bookedAt: nowIso,
+      sender: {
+        name: formData.senderName || '-',
+        phone: formData.senderPhone || '-',
+        city: formData.senderCity || '-',
+        address: formData.senderAddress || '-'
+      },
+      receiver: {
+        name: formData.receiverName || '-',
+        phone: formData.receiverPhone || '-',
+        whatsapp: formData.receiverWhatsapp || '-',
+        city: formData.receiverCity || '-',
+        address: formData.receiverAddress || '-'
+      }
+    };
+    const encodedPayload = encodeURIComponent(JSON.stringify(payloadObject));
+    const envBase = (import.meta.env.VITE_PUBLIC_BASE_URL as string | undefined) || '';
+    const baseUrl = envBase.trim()
+      ? envBase.trim().replace(/\/+$/, '')
+      : window.location.origin;
+    const payload = `${baseUrl}/label?data=${encodedPayload}`;
+    if (sessionAccount) {
+      const updated = adjustCodAccountWallet(sessionAccount.id, -totalCharge);
+      if (updated) {
+        setSessionAccount(updated);
+      }
+    }
     addBooking({
       trackingId: newTrackingId,
       deliveryCode: newDeliveryCode,
       status: 'pending',
       statusHistory: [{ status: 'pending', at: nowIso }],
+      isCod: Boolean(sessionAccount),
+      merchantId: sessionAccount?.id,
+      merchantEmail: sessionAccount?.email,
+      merchantName: sessionAccount?.companyName,
+      merchantPlan: sessionAccount?.planName,
+      merchantCity: sessionAccount?.city,
+      shippingCharge: totalCharge,
       senderName: formData.senderName,
       senderPhone: formData.senderPhone,
       senderCity: formData.senderCity,
@@ -129,6 +236,9 @@ export function BookParcel() {
     });
     setTrackingId(newTrackingId);
     setDeliveryCode(newDeliveryCode);
+    setQrDataUrl('');
+    setAutoDownloadDone(false);
+    setLabelPayload(payload);
     setIsModalOpen(true);
   };
 
@@ -249,6 +359,23 @@ export function BookParcel() {
     ? `Rs. ${outOfCityCharge}`
     : 'Rs. 0';
   const totalLabel = `Rs. ${totalCharge}`;
+  const walletBalance = sessionAccount
+    ? sessionAccount.walletBalance ?? sessionAccount.planTotal ?? 0
+    : null;
+  const balanceAfter =
+    walletBalance !== null ? walletBalance - totalCharge : null;
+  const walletLabel =
+    walletBalance !== null
+      ? `Rs. ${walletBalance.toLocaleString('en-PK', {
+          maximumFractionDigits: 0
+        })}`
+      : '';
+  const balanceAfterLabel =
+    balanceAfter !== null
+      ? `Rs. ${balanceAfter.toLocaleString('en-PK', {
+          maximumFractionDigits: 0
+        })}`
+      : '';
   const whatsappLink = buildWhatsappLink(deliveryCode);
   return (
     <main className="w-full pt-20 min-h-screen bg-slate-50">
@@ -499,7 +626,7 @@ export function BookParcel() {
                       className="w-5 h-5 text-orange-500 border-slate-300 rounded focus:ring-orange-500"
                     />
                     <label htmlFor="outOfCity" className="text-slate-700">
-                      Out of Service Area
+                      OSA
                     </label>
                   </div>
                   <div>
@@ -671,9 +798,35 @@ export function BookParcel() {
                   <span>Total</span>
                   <span className="text-orange-400">{totalLabel}</span>
                 </div>
+                {walletBalance !== null && (
+                  <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
+                    <div className="flex items-center justify-between">
+                      <span>Wallet Balance</span>
+                      <span className="text-white font-semibold">
+                        {walletLabel}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      <span>After Booking</span>
+                      <span className="text-white font-semibold">
+                        {balanceAfterLabel}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                  {bookingError && (
+                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                      {bookingError}
+                    </div>
+                  )}
                   <button
                     onClick={handleConfirmBooking}
-                    className="w-full mt-6 px-4 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 transition-colors font-semibold">
+                    disabled={Boolean(sessionAccount && sessionAccount.status !== 'approved')}
+                    className={`w-full mt-6 px-4 py-3 rounded-xl font-semibold transition-colors ${
+                      sessionAccount && sessionAccount.status !== 'approved'
+                        ? 'bg-slate-400 cursor-not-allowed'
+                        : 'bg-orange-500 hover:bg-orange-600'
+                    }`}>
                     Confirm Booking
                   </button>
                   <p className="mt-3 text-xs text-slate-400">
@@ -716,11 +869,11 @@ export function BookParcel() {
                 </span>
               </div>
 
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                <div className="text-sm text-slate-600">Delivery Code</div>
-                <div className="text-2xl font-black text-slate-800">
-                  {deliveryCode}
-                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                  <div className="text-sm text-slate-600">Delivery Code</div>
+                  <div className="text-2xl font-black text-slate-800">
+                    {deliveryCode}
+                  </div>
                 <p className="text-sm text-slate-600 mt-2">
                   Please remember this delivery code. It will be asked at
                   delivery.
@@ -758,6 +911,49 @@ export function BookParcel() {
                 </p>
               </div>
 
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-800">
+                      Shipment QR
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Scan with mobile to view parcel details.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDownloadQr}
+                    disabled={!qrDataUrl}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                      qrDataUrl
+                        ? 'bg-slate-900 text-white hover:bg-slate-800'
+                        : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                    }`}>
+                    Download QR
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  Auto-download starts when the QR is ready.
+                </p>
+                <div className="mt-4 flex items-center justify-center">
+                  {qrDataUrl ? (
+                    <img
+                      src={qrDataUrl}
+                      alt="Shipment QR"
+                      className="h-56 w-56 object-contain"
+                    />
+                  ) : (
+                    <span className="text-xs text-slate-500">
+                      Generating QR...
+                    </span>
+                  )}
+                </div>
+                <div className="mt-3 text-[10px] text-slate-500">
+                  QR includes sender, receiver, tracking ID, delivery code, and
+                  booking details.
+                </div>
+              </div>
+
               <p className="text-sm text-slate-600">
                 Your order is pending admin approval. Once approved, tracking
                 will update automatically.
@@ -769,6 +965,11 @@ export function BookParcel() {
                 onClick={() => {
                   setIsModalOpen(false);
                   resetForm();
+                  setTrackingId('');
+                  setDeliveryCode('');
+                  setQrDataUrl('');
+                  setLabelPayload('');
+                  setAutoDownloadDone(false);
                 }}
                 className="w-full px-4 py-3 rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition-colors font-semibold">
                 Book Another Parcel
