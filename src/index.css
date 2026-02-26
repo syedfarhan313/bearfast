@@ -88,6 +88,10 @@ body {
   animation: shake 0.35s ease-in-out;
 }
 
+.hide-floating-whatsapp .floating-whatsapp {
+  display: none;
+}
+
 .btn-ripple {
   position: relative;
   overflow: hidden;

@@ -1737,7 +1737,7 @@ export function Admin() {
                               </div>
                             </div>
 
-                            <div className="grid gap-3 grid-cols-2 md:grid-cols-4 text-sm">
+                            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-4 text-sm">
                               <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
                                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                                   Service
@@ -2572,7 +2572,7 @@ export function Admin() {
                         </div>
                       </div>
 
-                      <div className="grid gap-3 grid-cols-2 md:grid-cols-4 text-sm">
+                      <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-4 text-sm">
                         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
                           <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                             Service

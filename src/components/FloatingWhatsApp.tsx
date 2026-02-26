@@ -2,7 +2,7 @@ import React from 'react';
 import { MessageCircleIcon } from 'lucide-react';
 export function FloatingWhatsApp() {
   return (
-    <div className="fixed bottom-6 right-6 z-50 group">
+    <div className="floating-whatsapp fixed bottom-6 right-6 z-50 group">
       {/* Tooltip */}
       <div className="absolute bottom-full right-0 mb-2 px-3 py-1.5 bg-slate-800 text-white text-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
         Chat with us on WhatsApp

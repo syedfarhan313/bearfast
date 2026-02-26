@@ -304,6 +304,20 @@ export function CodRegistration() {
   }, [location.search]);
 
   useEffect(() => {
+    const className = 'hide-floating-whatsapp';
+    const shouldHide =
+      viewMode === 'account' && activeSection === 'settings';
+    if (shouldHide) {
+      document.body.classList.add(className);
+    } else {
+      document.body.classList.remove(className);
+    }
+    return () => {
+      document.body.classList.remove(className);
+    };
+  }, [viewMode, activeSection]);
+
+  useEffect(() => {
     const params = new URLSearchParams(location.search);
     const planParam = params.get('plan');
     const registerParam = params.get('register') === '1';
@@ -1069,9 +1083,7 @@ export function CodRegistration() {
       {viewMode === 'account' && loginAccount ? (
         <div className="min-h-screen" style={{ fontFamily: "'Poppins', 'Inter', system-ui, sans-serif" }}>
           <aside
-            className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#0F172A] text-white flex flex-col transform transition-transform duration-300 ${
-              sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-            } lg:translate-x-0 lg:flex`}>
+            className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-64 bg-[#0F172A] text-white flex-col">
             <div className="px-6 py-6 flex items-center justify-end">
               <button
                 type="button"
@@ -1110,44 +1122,44 @@ export function CodRegistration() {
 
           {sidebarOpen && (
             <div
-              className="fixed inset-0 z-40 bg-slate-900/60 lg:hidden"
+              className="hidden"
               onClick={() => setSidebarOpen(false)}
             />
           )}
 
           <div className="lg:pl-64">
             <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur">
-              <div className="px-6 lg:px-10 py-5 flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
+              <div className="px-4 sm:px-6 lg:px-10 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <div className="flex items-start gap-3">
                   <button
                     type="button"
                     onClick={() => setSidebarOpen(true)}
-                    className="lg:hidden h-10 w-10 rounded-2xl border border-slate-200 text-slate-600 hover:text-slate-800">
+                    className="hidden lg:inline-flex h-10 w-10 rounded-2xl border border-slate-200 text-slate-600 hover:text-slate-800">
                     <Menu className="h-4 w-4 mx-auto" />
                   </button>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
+                    <p className="text-[10px] sm:text-xs uppercase tracking-[0.25em] sm:tracking-[0.3em] text-slate-400">
                       Merchant Dashboard
                     </p>
-                    <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">
+                    <h1 className="text-lg sm:text-2xl md:text-3xl font-bold text-slate-900 mt-1">
                       {loginAccount.companyName || 'Your COD Account'}
                     </h1>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-900 text-white">
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs">
+                      <span className="px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold bg-slate-900 text-white">
                         {activeSectionLabel}
                       </span>
                       <span
-                        className={`px-3 py-1 rounded-full text-xs font-semibold ${accountStatusBadge}`}>
+                        className={`px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold ${accountStatusBadge}`}>
                         {loginAccount.status.toUpperCase()}
                       </span>
                       <span
-                        className={`px-3 py-1 rounded-full text-xs font-semibold text-white bg-gradient-to-r ${planBadgeClass()}`}>
+                        className={`px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold text-white bg-gradient-to-r ${planBadgeClass()}`}>
                         {loginAccount.planName}
                       </span>
                     </div>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="w-full lg:w-auto grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
                   <button
                     type="button"
                     onClick={() => navigate('/alerts?scope=user')}
@@ -1164,13 +1176,13 @@ export function CodRegistration() {
                       <Moon className="h-4 w-4 mx-auto" />
                     )}
                   </button>
-                  <div className="relative" ref={profileRef}>
+                  <div className="relative col-span-2 sm:col-span-1" ref={profileRef}>
                     <button
                       type="button"
                       onClick={() => setProfileOpen((prev) => !prev)}
                       aria-haspopup="menu"
                       aria-expanded={profileOpen}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50">
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50">
                       <UserCircle2 className="h-5 w-5 text-slate-500" />
                       Profile
                       <ChevronDown
@@ -1237,11 +1249,11 @@ export function CodRegistration() {
                   {canBookParcels ? (
                     <Link
                       to="/book"
-                      className="btn-ripple px-5 py-2.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold shadow-lg shadow-orange-200 hover:-translate-y-0.5 transition">
+                      className="btn-ripple col-span-2 sm:col-span-1 w-full sm:w-auto text-center px-5 py-2.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold shadow-lg shadow-orange-200 hover:-translate-y-0.5 transition">
                       Book a Parcel
                     </Link>
                   ) : (
-                    <span className="px-5 py-2.5 rounded-full bg-slate-100 text-slate-500 text-sm font-semibold">
+                    <span className="col-span-2 sm:col-span-1 w-full sm:w-auto text-center px-5 py-2.5 rounded-full bg-slate-100 text-slate-500 text-sm font-semibold">
                       Booking locked until approval
                     </span>
                   )}
@@ -1252,14 +1264,39 @@ export function CodRegistration() {
                       setLoginAccount(null);
                       setViewMode('register');
                     }}
-                    className="btn-ripple px-5 py-2.5 rounded-full border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50">
+                    className="btn-ripple col-span-2 sm:col-span-1 w-full sm:w-auto text-center px-5 py-2.5 rounded-full border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50">
                     Logout
                   </button>
                 </div>
               </div>
             </header>
 
-            <main className="px-6 lg:px-10 py-8 max-w-[1600px] mx-auto space-y-8">
+            <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-800/70 bg-[#0F172A]">
+              <div className="max-w-[600px] mx-auto px-3 pt-2 pb-3">
+                <div className="grid grid-cols-5 gap-2">
+                  {DASHBOARD_NAV.map((item) => {
+                    const isActive = activeSection === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => setActiveSection(item.key)}
+                        aria-current={isActive ? 'page' : undefined}
+                        className={`flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold transition ${
+                          isActive
+                            ? 'bg-white/10 text-white ring-1 ring-white/15'
+                            : 'text-white/70 hover:bg-white/5 hover:text-white'
+                        }`}>
+                        <item.icon className="h-5 w-5" />
+                        <span className="leading-none">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </nav>
+
+            <main className="px-4 sm:px-6 lg:px-10 pt-8 pb-28 lg:pb-8 max-w-[1600px] mx-auto space-y-8">
               {pendingPayments > 0 && (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-700 text-sm">
                   Pending payments alert: {pendingPayments} COD payments are
@@ -1276,13 +1313,13 @@ export function CodRegistration() {
 
               {activeSection === 'dashboard' && (
                 <>
-                  <section className="rounded-3xl border border-slate-200/60 bg-white p-6 shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-4">
+                  <section className="rounded-3xl border border-slate-200/60 bg-white p-5 sm:p-6 shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
                       <div>
                         <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                           Merchant Actions
                         </p>
-                        <p className="text-2xl font-semibold text-slate-800 mt-2">
+                        <p className="text-xl sm:text-2xl font-semibold text-slate-800 mt-2">
                           Book a Parcel
                         </p>
                         <p className="text-sm text-slate-500 mt-2">
@@ -1292,11 +1329,11 @@ export function CodRegistration() {
                       {canBookParcels ? (
                         <Link
                           to="/book"
-                          className="btn-ripple px-5 py-2.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold shadow-lg shadow-orange-200 hover:-translate-y-0.5 transition">
+                          className="btn-ripple w-full sm:w-auto text-center px-5 py-2.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold shadow-lg shadow-orange-200 hover:-translate-y-0.5 transition">
                           Book a Parcel
                         </Link>
                       ) : (
-                        <div className="px-5 py-2.5 rounded-full bg-amber-100 text-amber-700 text-sm font-semibold">
+                        <div className="w-full sm:w-auto text-center px-5 py-2.5 rounded-full bg-amber-100 text-amber-700 text-sm font-semibold">
                           Booking locked until approval
                         </div>
                       )}
@@ -1305,23 +1342,23 @@ export function CodRegistration() {
                       <button
                         type="button"
                         onClick={() => setShowClearModal(true)}
-                        className="px-4 py-2.5 rounded-full border border-rose-200 bg-rose-50 text-rose-700 text-sm font-semibold hover:bg-rose-100">
+                        className="w-full sm:w-auto text-center px-4 py-2.5 rounded-full border border-rose-200 bg-rose-50 text-rose-700 text-sm font-semibold hover:bg-rose-100">
                         Clear Dashboard
                       </button>
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-slate-500 sm:text-sm">
                         This will remove all account records and log you out.
                       </span>
                     </div>
                   </section>
                   <section className="grid gap-6 lg:grid-cols-12">
-                  <div className="lg:col-span-8 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-800 p-8 text-white shadow-2xl">
+                  <div className="lg:col-span-8 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-800 p-6 sm:p-8 text-white shadow-2xl">
                     <div className="flex flex-wrap items-start justify-between gap-6">
                       <div>
                         <p className="text-xs uppercase tracking-[0.3em] text-white/70">
                           Available Balance
                         </p>
                         <p
-                          className={`text-4xl lg:text-5xl font-black mt-3 ${
+                          className={`text-3xl sm:text-4xl lg:text-5xl font-black mt-3 ${
                             balancePulse ? 'animate-pulse' : ''
                           }`}>
                           Rs. {formatMoney(walletBalance)}
@@ -1330,7 +1367,7 @@ export function CodRegistration() {
                           {loginAccount.planName} Wallet
                         </p>
                       </div>
-                      <div className="rounded-2xl bg-white/10 border border-white/20 px-4 py-3 text-xs uppercase tracking-[0.3em] text-white/80">
+                      <div className="rounded-2xl bg-white/10 border border-white/20 px-4 py-3 text-[10px] sm:text-xs uppercase tracking-[0.3em] text-white/80">
                         Premium COD
                       </div>
                     </div>
@@ -1352,7 +1389,7 @@ export function CodRegistration() {
                         type="button"
                         onClick={() => setShowFundModal(true)}
                         disabled={Boolean(pendingFundRequest)}
-                        className={`btn-ripple inline-flex items-center gap-2 px-4 py-2.5 rounded-full font-semibold shadow-sm transition ${
+                        className={`btn-ripple w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full font-semibold shadow-sm transition ${
                           pendingFundRequest
                             ? 'bg-white/60 text-slate-600 cursor-not-allowed'
                             : 'bg-white text-slate-900 hover:bg-slate-100'
@@ -1360,7 +1397,7 @@ export function CodRegistration() {
                         <PlusCircle className="h-4 w-4" />
                         {pendingFundRequest ? 'Request Pending' : 'Add Funds'}
                       </button>
-                      <button className="btn-ripple inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-white/30 text-white font-semibold hover:bg-white/10 transition">
+                      <button className="btn-ripple w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border border-white/30 text-white font-semibold hover:bg-white/10 transition">
                         <BarChart3 className="h-4 w-4" />
                         View Transactions
                       </button>
@@ -1373,7 +1410,7 @@ export function CodRegistration() {
                   </div>
 
                   <div className="lg:col-span-4 grid gap-4">
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {[
                         {
                           label: 'Total Orders',
@@ -1546,25 +1583,25 @@ export function CodRegistration() {
                 <section className="rounded-3xl border border-slate-200/60 bg-white p-6 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
-                      <p className="text-2xl font-semibold text-slate-800">
+                      <p className="text-xl sm:text-2xl font-semibold text-slate-800">
                         Recent Orders
                       </p>
-                      <p className="text-lg text-slate-500">
+                      <p className="text-base sm:text-lg text-slate-500">
                         Latest activity across your account
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setActiveSection('orders')}
-                      className="text-lg font-semibold text-orange-600 hover:text-orange-700">
+                      className="text-base sm:text-lg font-semibold text-orange-600 hover:text-orange-700">
                       View all
                     </button>
                   </div>
 
                   <div className="mt-5 overflow-x-auto">
-                    <table className="w-full text-lg">
+                    <table className="w-full min-w-[720px] text-sm sm:text-base">
                       <thead>
-                        <tr className="text-left text-slate-400 text-lg uppercase tracking-[0.2em]">
+                        <tr className="text-left text-slate-400 text-xs sm:text-sm uppercase tracking-[0.2em]">
                           <th className="pb-3">Tracking</th>
                           <th className="pb-3">Status</th>
                           <th className="pb-3">Amount</th>
@@ -1577,24 +1614,24 @@ export function CodRegistration() {
                           <tr
                             key={booking.trackingId}
                             className="hover:bg-slate-50">
-                            <td className="py-4 font-semibold text-slate-900">
+                            <td className="py-3 sm:py-4 font-semibold text-slate-900">
                               {booking.trackingId}
                             </td>
-                            <td className="py-4">
+                            <td className="py-3 sm:py-4">
                               <span
-                                className={`px-3 py-1 rounded-full text-base font-semibold ${statusBadge(
+                                className={`px-3 py-1 rounded-full text-xs sm:text-sm font-semibold ${statusBadge(
                                   booking.status
                                 )}`}>
                                 {statusLabel(booking.status)}
                               </span>
                             </td>
-                            <td className="py-4 text-slate-600">
+                            <td className="py-3 sm:py-4 text-slate-600">
                               Rs. {formatMoney(booking.shippingCharge || 0)}
                             </td>
-                            <td className="py-4 text-slate-600">
+                            <td className="py-3 sm:py-4 text-slate-600">
                               {formatDateTime(booking.createdAt)}
                             </td>
-                            <td className="py-4 text-right">
+                            <td className="py-3 sm:py-4 text-right">
                               <button className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700 hover:text-slate-900">
                                 Details
                                 <ArrowUpRight className="h-4 w-4" />
@@ -1606,7 +1643,7 @@ export function CodRegistration() {
                           <tr>
                             <td
                               colSpan={5}
-                              className="py-6 text-center text-lg text-slate-500">
+                              className="py-6 text-center text-base sm:text-lg text-slate-500">
                               No parcels booked yet. Start by booking your first
                               shipment.
                             </td>
@@ -1733,7 +1770,7 @@ export function CodRegistration() {
                               </option>
                             ))}
                           </select>
-                          <div className="grid grid-cols-2 gap-2" />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" />
                         </div>
                       </div>
                     </div>
@@ -1970,22 +2007,22 @@ export function CodRegistration() {
                   <section className="rounded-3xl border border-slate-200/60 bg-white p-6 shadow-sm">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <div>
-                        <p className="text-2xl font-semibold text-slate-800">
+                        <p className="text-xl sm:text-2xl font-semibold text-slate-800">
                           Wallet Activity
                         </p>
-                        <p className="text-lg text-slate-500">
+                        <p className="text-base sm:text-lg text-slate-500">
                           Latest charges & COD collections
                         </p>
                       </div>
-                      <button className="text-lg font-semibold text-orange-600 hover:text-orange-700">
+                      <button className="text-base sm:text-lg font-semibold text-orange-600 hover:text-orange-700">
                         Export
                       </button>
                     </div>
 
                     <div className="mt-5 overflow-x-auto">
-                      <table className="w-full text-lg">
+                      <table className="w-full min-w-[720px] text-sm sm:text-base">
                         <thead>
-                          <tr className="text-left text-slate-400 text-lg uppercase tracking-[0.2em]">
+                          <tr className="text-left text-slate-400 text-xs sm:text-sm uppercase tracking-[0.2em]">
                             <th className="pb-3">Tracking</th>
                             <th className="pb-3">Shipping</th>
                             <th className="pb-3">COD</th>
@@ -2000,25 +2037,25 @@ export function CodRegistration() {
                               <tr
                                 key={booking.trackingId}
                                 className="hover:bg-slate-50">
-                                <td className="py-4 font-semibold text-slate-900">
+                                <td className="py-3 sm:py-4 font-semibold text-slate-900">
                                   {booking.trackingId}
                                 </td>
-                                <td className="py-4 text-slate-600">
+                                <td className="py-3 sm:py-4 text-slate-600">
                                   Rs.{' '}
                                   {formatMoney(booking.shippingCharge || 0)}
                                 </td>
-                                <td className="py-4 text-slate-600">
+                                <td className="py-3 sm:py-4 text-slate-600">
                                   Rs. {formatMoney(Number.isNaN(codValue) ? 0 : codValue)}
                                 </td>
-                                <td className="py-4">
+                                <td className="py-3 sm:py-4">
                                   <span
-                                    className={`px-3 py-1 rounded-full text-base font-semibold ${statusBadge(
+                                    className={`px-3 py-1 rounded-full text-xs sm:text-sm font-semibold ${statusBadge(
                                       booking.status
                                     )}`}>
                                     {statusLabel(booking.status)}
                                   </span>
                                 </td>
-                                <td className="py-4 text-slate-600">
+                                <td className="py-3 sm:py-4 text-slate-600">
                                   {formatDateTime(booking.createdAt)}
                                 </td>
                               </tr>
@@ -2028,7 +2065,7 @@ export function CodRegistration() {
                             <tr>
                               <td
                                 colSpan={5}
-                                className="py-6 text-center text-lg text-slate-500">
+                                className="py-6 text-center text-base sm:text-lg text-slate-500">
                                 No wallet activity yet. Book a shipment to
                                 generate charges.
                               </td>
@@ -2432,7 +2469,7 @@ export function CodRegistration() {
                     )}
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                     {STEPS.map((label, index) => {
                       const isActive = index === currentStep;
                       const isDone = index < currentStep;
