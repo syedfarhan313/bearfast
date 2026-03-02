@@ -7,14 +7,21 @@ import {
   formatDate,
   formatTime,
   isCodBooking,
-  loadBookings
+  subscribeBookings,
+  subscribeBookingsByMerchant
 } from '../utils/bookingStore';
 import {
   CodAccountRequest,
-  loadCodAccounts,
-  loadCodSession
+  subscribeCodAccount,
+  subscribeCodAccounts
 } from '../utils/codAccountStore';
-import { FundRequest, loadFundRequests } from '../utils/fundRequestStore';
+import {
+  FundRequest,
+  subscribeFundRequests,
+  subscribeFundRequestsByAccount
+} from '../utils/fundRequestStore';
+import { auth } from '../lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 type Scope = 'admin' | 'user';
 
@@ -41,13 +48,45 @@ export function Alerts() {
     useState<CodAccountRequest | null>(null);
 
   useEffect(() => {
-    setBookings(loadBookings());
-    setFundRequests(loadFundRequests());
+    let unsubscribeBookings = () => {};
+    let unsubscribeFunds = () => {};
+    let unsubscribeAccounts = () => {};
+    let unsubscribeAccount = () => {};
+    let unsubscribeAuth = () => {};
+
     if (isAdmin) {
-      setCodAccounts(loadCodAccounts());
+      unsubscribeBookings = subscribeBookings(setBookings);
+      unsubscribeFunds = subscribeFundRequests(setFundRequests);
+      unsubscribeAccounts = subscribeCodAccounts(setCodAccounts);
     } else {
-      setSessionAccount(loadCodSession());
+      unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+        unsubscribeAccount();
+        unsubscribeFunds();
+        unsubscribeBookings();
+        if (!user) {
+          setSessionAccount(null);
+          setFundRequests([]);
+          return;
+        }
+        unsubscribeBookings = subscribeBookingsByMerchant(
+          user.uid,
+          setBookings
+        );
+        unsubscribeAccount = subscribeCodAccount(user.uid, setSessionAccount);
+        unsubscribeFunds = subscribeFundRequestsByAccount(
+          user.uid,
+          setFundRequests
+        );
+      });
     }
+
+    return () => {
+      unsubscribeBookings();
+      unsubscribeFunds();
+      unsubscribeAccounts();
+      unsubscribeAccount();
+      unsubscribeAuth();
+    };
   }, [isAdmin]);
 
   const adminPendingFunds = useMemo(

@@ -1,3 +1,20 @@
+import {
+  arrayUnion,
+  collection,
+  doc,
+  deleteDoc,
+  getDoc,
+  getDocs,
+  increment,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
+  updateDoc,
+  writeBatch
+} from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
+
 export type CodAccountStatus =
   | 'pending'
   | 'approved'
@@ -43,7 +60,7 @@ export interface CodAccountRequest {
   monthlyShipment: string;
   specialInstructions: string;
   googleMapPin: string;
-  password: string;
+  password?: string;
 }
 
 export const SERVICE_CITIES = [
@@ -57,11 +74,20 @@ export const SERVICE_CITIES = [
   'Bannu'
 ];
 
-const STORAGE_KEY = 'bearfast_cod_accounts';
-const SESSION_KEY = 'bearfast_cod_session';
 export const CARD_FEE = 800;
+const COLLECTION = 'codAccounts';
+
+const normalizeStatus = (value: string | undefined) => {
+  const normalized = (value || '').trim().toLowerCase();
+  if (normalized === 'approved') return 'approved';
+  if (normalized === 'pending') return 'pending';
+  if (normalized === 'rejected') return 'rejected';
+  if (normalized === 'suspended') return 'suspended';
+  return undefined;
+};
 
 const normalizeAccount = (account: CodAccountRequest) => {
+  const status = normalizeStatus(account.status) ?? 'pending';
   const planTotal = Number.isFinite(account.planTotal) ? account.planTotal : 0;
   const baseBalance = Math.max(0, planTotal - CARD_FEE);
   const hasWallet =
@@ -78,106 +104,137 @@ const normalizeAccount = (account: CodAccountRequest) => {
   }
   return {
     ...account,
+    status,
     walletBalance
   };
 };
 
-export const loadCodAccounts = (): CodAccountRequest[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as CodAccountRequest[];
-    if (!Array.isArray(parsed)) return [];
-    const normalized = parsed.map((account) => normalizeAccount(account));
-    if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
-      saveCodAccounts(normalized);
+const mapDoc = (docSnap: { data: () => CodAccountRequest; id: string }) => {
+  const data = docSnap.data();
+  return normalizeAccount({
+    ...data,
+    id: data.id || docSnap.id
+  });
+};
+
+export const subscribeCodAccounts = (
+  onChange: (items: CodAccountRequest[]) => void,
+  onError?: (error: Error) => void
+) => {
+  const q = query(collection(db, COLLECTION), orderBy('createdAt', 'desc'));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const next = snapshot.docs.map((docSnap) => mapDoc(docSnap));
+      onChange(next);
+    },
+    (error) => {
+      onError?.(error);
     }
-    return normalized;
-  } catch {
-    return [];
+  );
+};
+
+export const subscribeCodAccount = (
+  id: string,
+  onChange: (item: CodAccountRequest | null) => void,
+  onError?: (error: Error) => void
+) => {
+  const currentUser = auth.currentUser;
+  if (!currentUser || currentUser.uid !== id) {
+    onChange(null);
+    return () => {};
   }
+  const ref = doc(db, COLLECTION, id);
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      onChange(snapshot.exists() ? mapDoc(snapshot) : null);
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
 };
 
-export const saveCodAccounts = (accounts: CodAccountRequest[]) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
+export const loadCodAccounts = async (): Promise<CodAccountRequest[]> => {
+  const q = query(collection(db, COLLECTION), orderBy('createdAt', 'desc'));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((docSnap) => mapDoc(docSnap));
 };
 
-export const addCodAccount = (account: CodAccountRequest) => {
-  const accounts = loadCodAccounts();
-  accounts.unshift(normalizeAccount(account));
-  saveCodAccounts(accounts);
+export const getCodAccount = async (id: string) => {
+  const ref = doc(db, COLLECTION, id);
+  const snap = await getDoc(ref);
+  return snap.exists() ? mapDoc(snap as { data: () => CodAccountRequest }) : null;
 };
 
-export const updateCodAccountStatus = (
+export const addCodAccount = async (
+  id: string,
+  account: Omit<CodAccountRequest, 'id'>
+) => {
+  const ref = doc(db, COLLECTION, id);
+  const payload = normalizeAccount({ ...account, id });
+  await setDoc(ref, payload);
+  return payload;
+};
+
+export const updateCodAccountStatus = async (
   id: string,
   status: CodAccountStatus
 ) => {
-  const accounts = loadCodAccounts();
-  const index = accounts.findIndex((account) => account.id === id);
-  if (index === -1) return;
-  const account = accounts[index];
-  if (account.status !== status) {
-    account.status = status;
-    account.statusHistory = [
-      ...account.statusHistory,
-      { status, at: new Date().toISOString() }
-    ];
+  const ref = doc(db, COLLECTION, id);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const current = snap.data() as CodAccountRequest;
+  if (current.status === status) return;
+  const nowIso = new Date().toISOString();
+  const adminEmail = auth.currentUser?.email || null;
+  const updates: Record<string, unknown> = { status };
+  if (status === 'approved') {
+    updates.approvedAt = nowIso;
+    updates.approvedBy = adminEmail;
+    updates.rejectedAt = null;
+    updates.rejectedBy = null;
+  } else if (status === 'rejected') {
+    updates.rejectedAt = nowIso;
+    updates.rejectedBy = adminEmail;
+    updates.approvedAt = null;
+    updates.approvedBy = null;
   }
-  accounts[index] = account;
-  saveCodAccounts(accounts);
+  await updateDoc(ref, updates);
 };
 
-export const adjustCodAccountWallet = (id: string, delta: number) => {
-  const accounts = loadCodAccounts();
-  const index = accounts.findIndex((account) => account.id === id);
-  if (index === -1) return null;
-  const account = accounts[index];
-  const current = Number.isFinite(account.walletBalance)
-    ? account.walletBalance
-    : account.planTotal || 0;
-  account.walletBalance = Number((current + delta).toFixed(2));
-  accounts[index] = account;
-  saveCodAccounts(accounts);
-  return account;
+export const adjustCodAccountWallet = async (id: string, delta: number) => {
+  const ref = doc(db, COLLECTION, id);
+  await updateDoc(ref, {
+    walletBalance: increment(delta)
+  });
+  const snap = await getDoc(ref);
+  return snap.exists() ? mapDoc(snap as { data: () => CodAccountRequest }) : null;
 };
 
-export const updateCodAccountPassword = (id: string, password: string) => {
-  const accounts = loadCodAccounts();
-  const index = accounts.findIndex((account) => account.id === id);
-  if (index === -1) return null;
-  const account = accounts[index];
-  account.password = password;
-  accounts[index] = account;
-  saveCodAccounts(accounts);
-  return account;
+export const updateCodAccountLastLogin = async (id: string) => {
+  const ref = doc(db, COLLECTION, id);
+  await updateDoc(ref, { lastLoginAt: new Date().toISOString() });
 };
 
-export const setCodSession = (accountId: string) => {
-  sessionStorage.setItem(SESSION_KEY, accountId);
-};
-
-export const clearCodSession = () => {
-  sessionStorage.removeItem(SESSION_KEY);
-  localStorage.removeItem(SESSION_KEY);
-};
-
-export const loadCodSession = () => {
-  const id = sessionStorage.getItem(SESSION_KEY);
-  if (!id) {
-    localStorage.removeItem(SESSION_KEY);
-    return null;
+export const clearCodAccounts = async () => {
+  const snapshot = await getDocs(collection(db, COLLECTION));
+  if (snapshot.empty) return;
+  let batch = writeBatch(db);
+  let count = 0;
+  for (const docSnap of snapshot.docs) {
+    batch.delete(docSnap.ref);
+    count += 1;
+    if (count === 450) {
+      await batch.commit();
+      batch = writeBatch(db);
+      count = 0;
+    }
   }
-  const accounts = loadCodAccounts();
-  return accounts.find((account) => account.id === id) ?? null;
+  await batch.commit();
 };
 
-export const clearCodAccounts = () => {
-  saveCodAccounts([]);
-};
-
-export const deleteCodAccount = (id: string) => {
-  const accounts = loadCodAccounts();
-  const next = accounts.filter((account) => account.id !== id);
-  saveCodAccounts(next);
-  return next;
+export const deleteCodAccount = async (id: string) => {
+  await deleteDoc(doc(db, COLLECTION, id));
 };

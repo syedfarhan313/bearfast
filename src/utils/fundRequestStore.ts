@@ -1,3 +1,17 @@
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
+  updateDoc,
+  where
+} from 'firebase/firestore';
+import { db } from '../lib/firebase';
+
 export type FundRequestStatus = 'pending' | 'approved' | 'rejected';
 
 export type FundRequest = {
@@ -17,39 +31,88 @@ export type FundRequest = {
   status: FundRequestStatus;
 };
 
-const STORAGE_KEY = 'bearfast_fund_requests';
+const COLLECTION = 'fundRequests';
+const ACCEPTED_COLLECTION = 'acceptedFundRequests';
 
-export const loadFundRequests = (): FundRequest[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as FundRequest[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
-  } catch {
-    return [];
-  }
+const mapDoc = (docSnap: { data: () => FundRequest; id: string }) => {
+  const data = docSnap.data();
+  return {
+    ...data,
+    id: data.id || docSnap.id
+  };
 };
 
-export const saveFundRequests = (requests: FundRequest[]) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(requests));
+export const subscribeFundRequests = (
+  onChange: (items: FundRequest[]) => void,
+  onError?: (error: Error) => void
+) => {
+  const q = query(collection(db, COLLECTION), orderBy('createdAt', 'desc'));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const next = snapshot.docs.map((docSnap) => mapDoc(docSnap));
+      onChange(next);
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
 };
 
-export const addFundRequest = (request: FundRequest) => {
-  const requests = loadFundRequests();
-  requests.unshift(request);
-  saveFundRequests(requests);
+export const subscribeFundRequestsByAccount = (
+  accountId: string,
+  onChange: (items: FundRequest[]) => void,
+  onError?: (error: Error) => void
+) => {
+  const q = query(
+    collection(db, COLLECTION),
+    where('accountId', '==', accountId),
+    orderBy('createdAt', 'desc')
+  );
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const next = snapshot.docs.map((docSnap) => mapDoc(docSnap));
+      onChange(next);
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
 };
 
-export const updateFundRequestStatus = (
+export const loadFundRequests = async (): Promise<FundRequest[]> => {
+  const q = query(collection(db, COLLECTION), orderBy('createdAt', 'desc'));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((docSnap) => mapDoc(docSnap));
+};
+
+export const addFundRequest = async (request: FundRequest) => {
+  const ref = doc(db, COLLECTION, request.id);
+  await setDoc(ref, request);
+};
+
+export const updateFundRequestStatus = async (
   id: string,
   status: FundRequestStatus
 ) => {
-  const requests = loadFundRequests();
-  const index = requests.findIndex((req) => req.id === id);
-  if (index === -1) return null;
-  const request = { ...requests[index], status };
-  requests[index] = request;
-  saveFundRequests(requests);
-  return request;
+  const ref = doc(db, COLLECTION, id);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  await updateDoc(ref, { status });
+  return { ...(snap.data() as FundRequest), status };
+};
+
+export const addAcceptedFundRequest = async (
+  request: FundRequest,
+  meta: { approvedAt: string; approvedBy: string | null }
+) => {
+  const ref = doc(db, ACCEPTED_COLLECTION, request.id);
+  await setDoc(ref, {
+    ...request,
+    status: 'approved',
+    approvedAt: meta.approvedAt,
+    approvedBy: meta.approvedBy,
+    originalRequestId: request.id
+  });
 };

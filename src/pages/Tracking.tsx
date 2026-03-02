@@ -14,7 +14,7 @@ import {
   STATUS_OPTIONS,
   formatDate,
   formatTime,
-  getBooking
+  subscribeBooking
 } from '../utils/bookingStore';
 export function Tracking() {
   const location = useLocation();
@@ -22,25 +22,13 @@ export function Tracking() {
   const [isTracking, setIsTracking] = useState(false);
   const [booking, setBooking] = useState<Booking | null>(null);
   const [notFound, setNotFound] = useState(false);
-
-  const trackNumber = (value: string) => {
-    if (!value.trim()) return;
-    setIsTracking(true);
-    setTimeout(() => {
-      const found = getBooking(value.trim());
-      setIsTracking(false);
-      if (found) {
-        setBooking(found);
-        setNotFound(false);
-      } else {
-        setBooking(null);
-        setNotFound(true);
-      }
-    }, 700);
-  };
+  const [activeTrackingId, setActiveTrackingId] = useState('');
+  const [trackingError, setTrackingError] = useState('');
 
   const handleTrack = () => {
-    trackNumber(trackingNumber);
+    const value = trackingNumber.trim();
+    if (!value) return;
+    setActiveTrackingId(value);
   };
 
   useEffect(() => {
@@ -48,9 +36,29 @@ export function Tracking() {
     const param = params.get('tracking');
     if (param) {
       setTrackingNumber(param);
-      trackNumber(param);
+      setActiveTrackingId(param);
     }
   }, [location.search]);
+
+  useEffect(() => {
+    if (!activeTrackingId) return;
+    setIsTracking(true);
+    setTrackingError('');
+    const unsubscribe = subscribeBooking(
+      activeTrackingId,
+      (found) => {
+        setBooking(found);
+        setNotFound(!found);
+        setIsTracking(false);
+      },
+      (error) => {
+        console.error('[Tracking] subscribe failed', error);
+        setTrackingError('Unable to load tracking details right now.');
+        setIsTracking(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [activeTrackingId]);
   return (
     <main className="w-full pt-20 min-h-screen bg-slate-50">
       {/* Hero */}
@@ -269,6 +277,8 @@ export function Tracking() {
                   setBooking(null);
                   setTrackingNumber('');
                   setNotFound(false);
+                  setActiveTrackingId('');
+                  setTrackingError('');
                 }}
                 className="px-8 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold shadow-lg shadow-blue-200 hover:from-blue-700 hover:to-indigo-700 transition-colors">
                 Track Another Shipment
@@ -305,6 +315,22 @@ export function Tracking() {
             </h2>
             <p className="text-slate-500">
               Please check the tracking number and try again.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {trackingError && (
+        <section className="py-10">
+          <div className="max-w-md mx-auto px-4 text-center">
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <PackageIcon className="w-8 h-8 text-amber-500" />
+            </div>
+            <h2 className="text-lg font-bold text-slate-800 mb-2">
+              {trackingError}
+            </h2>
+            <p className="text-slate-500">
+              Try again in a moment or check your connection.
             </p>
           </div>
         </section>

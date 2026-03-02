@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import { addBooking, loadBookings } from '../utils/bookingStore';
+import { addBooking, getBooking } from '../utils/bookingStore';
 import {
   CodAccountRequest,
   adjustCodAccountWallet,
-  loadCodSession
+  subscribeCodAccount
 } from '../utils/codAccountStore';
+import { auth } from '../lib/firebase';
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 
 export function BookParcel() {
   const [serviceType, setServiceType] = useState('overnight');
@@ -36,17 +38,33 @@ export function BookParcel() {
   });
 
   useEffect(() => {
-    const session = loadCodSession();
-    if (session) {
-      setSessionAccount(session);
-      setFormData((prev) => ({
-        ...prev,
-        senderName: prev.senderName || session.contactName || session.companyName,
-        senderPhone: prev.senderPhone || session.phone,
-        senderCity: prev.senderCity || session.city || 'Islamabad',
-        senderAddress: prev.senderAddress || session.address
-      }));
-    }
+    let unsubscribeAccount = () => {};
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      unsubscribeAccount();
+      if (!user) {
+        setSessionAccount(null);
+        return;
+      }
+      unsubscribeAccount = subscribeCodAccount(user.uid, (account) => {
+        if (account) {
+          setSessionAccount(account);
+          setFormData((prev) => ({
+            ...prev,
+            senderName:
+              prev.senderName || account.contactName || account.companyName,
+            senderPhone: prev.senderPhone || account.phone,
+            senderCity: prev.senderCity || account.city || 'Islamabad',
+            senderAddress: prev.senderAddress || account.address
+          }));
+        } else {
+          setSessionAccount(null);
+        }
+      });
+    });
+    return () => {
+      unsubscribeAccount();
+      unsubscribeAuth();
+    };
   }, []);
 
   const handleChange = (
@@ -101,14 +119,14 @@ export function BookParcel() {
     return 'PKG';
   };
 
-  const generateTrackingId = (city: string) => {
+  const generateTrackingId = async (city: string) => {
     const code = getCityCode(city);
-    const bookings = loadBookings();
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const num = Math.floor(Math.random() * 10000);
       const suffix = String(num).padStart(4, '0');
       const candidate = `${code}-${suffix}`;
-      if (!bookings.some((booking) => booking.trackingId === candidate)) {
+      const existing = await getBooking(candidate);
+      if (!existing) {
         return candidate;
       }
     }
@@ -161,7 +179,17 @@ export function BookParcel() {
     return () => window.clearTimeout(timer);
   }, [isModalOpen, qrDataUrl, trackingId, autoDownloadDone]);
 
-  const handleConfirmBooking = () => {
+  const handleConfirmBooking = async () => {
+    let currentUser = auth.currentUser;
+    if (!currentUser) {
+      try {
+        const credential = await signInAnonymously(auth);
+        currentUser = credential.user;
+      } catch {
+        setBookingError('Please sign in to confirm booking.');
+        return;
+      }
+    }
     if (sessionAccount && sessionAccount.status !== 'approved') {
       setBookingError(
         'Your COD account is not approved yet. Booking is locked until approval.'
@@ -169,7 +197,7 @@ export function BookParcel() {
       return;
     }
     setBookingError('');
-    const newTrackingId = generateTrackingId(formData.receiverCity);
+    const newTrackingId = await generateTrackingId(formData.receiverCity);
     const newDeliveryCode = generateDeliveryCode();
     const nowIso = new Date().toISOString();
     const payloadObject = {
@@ -201,22 +229,24 @@ export function BookParcel() {
       : window.location.origin;
     const payload = `${baseUrl}/label?data=${encodedPayload}`;
     if (sessionAccount) {
-      const updated = adjustCodAccountWallet(sessionAccount.id, -totalCharge);
-      if (updated) {
-        setSessionAccount(updated);
-      }
+      const updated = await adjustCodAccountWallet(
+        sessionAccount.id,
+        -totalCharge
+      );
+      if (updated) setSessionAccount(updated);
     }
-    addBooking({
+    await addBooking({
       trackingId: newTrackingId,
       deliveryCode: newDeliveryCode,
       status: 'pending',
       statusHistory: [{ status: 'pending', at: nowIso }],
+      userId: currentUser.uid,
       isCod: Boolean(sessionAccount),
-      merchantId: sessionAccount?.id,
-      merchantEmail: sessionAccount?.email,
-      merchantName: sessionAccount?.companyName,
-      merchantPlan: sessionAccount?.planName,
-      merchantCity: sessionAccount?.city,
+      merchantId: sessionAccount?.id ?? null,
+      merchantEmail: sessionAccount?.email ?? null,
+      merchantName: sessionAccount?.companyName ?? null,
+      merchantPlan: sessionAccount?.planName ?? null,
+      merchantCity: sessionAccount?.city ?? null,
       shippingCharge: totalCharge,
       senderName: formData.senderName,
       senderPhone: formData.senderPhone,

@@ -31,28 +31,34 @@ import {
 } from 'lucide-react';
 import {
   addCodAccount,
-  clearCodSession,
   CodAccountRequest,
   CARD_FEE,
   deleteCodAccount,
-  loadCodAccounts,
-  loadCodSession,
-  setCodSession,
   SERVICE_CITIES,
-  updateCodAccountPassword
+  subscribeCodAccount,
+  updateCodAccountLastLogin
 } from '../utils/codAccountStore';
 import {
   addFundRequest,
   FundRequest,
-  loadFundRequests
+  subscribeFundRequestsByAccount
 } from '../utils/fundRequestStore';
 import {
-  loadBookings,
-  saveBookings,
+  deleteBookingsByMerchantId,
+  subscribeBookingsByMerchant,
   Booking,
   STATUS_OPTIONS,
   isCodBooking
 } from '../utils/bookingStore';
+import { auth } from '../lib/firebase';
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signOut,
+  updatePassword
+} from 'firebase/auth';
 
 const packages = [
   {
@@ -100,26 +106,6 @@ const STEPS = [
   'Shipping Information',
   'Password'
 ];
-
-const CITY_CODE_MAP: Record<string, string> = {
-  islamabad: 'ISB',
-  rawalpindi: 'RWP',
-  lahore: 'LHR',
-  karachi: 'KHI',
-  multan: 'MUX',
-  peshawar: 'PEW',
-  swabi: 'SWB',
-  bannu: 'BNP'
-};
-
-const getCityCode = (city: string) => {
-  const normalized = city.trim().toLowerCase();
-  if (CITY_CODE_MAP[normalized]) return CITY_CODE_MAP[normalized];
-  const lettersOnly = normalized.replace(/[^a-z]/g, '');
-  if (lettersOnly.length >= 3) return lettersOnly.slice(0, 3).toUpperCase();
-  if (lettersOnly.length > 0) return lettersOnly.toUpperCase();
-  return 'COD';
-};
 
 const DASHBOARD_NAV = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
@@ -218,6 +204,7 @@ export function CodRegistration() {
   const [formData, setFormData] = useState<FormState>(initialForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [planError, setPlanError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -242,10 +229,10 @@ export function CodRegistration() {
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [viewMode, setViewMode] = useState<'register' | 'account'>('register');
   const [registerOnly, setRegisterOnly] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotStep, setForgotStep] = useState<'email' | 'reset'>('email');
-  const [forgotAccountId, setForgotAccountId] = useState<string | null>(null);
   const [forgotNewPassword, setForgotNewPassword] = useState('');
   const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
   const [forgotError, setForgotError] = useState('');
@@ -253,6 +240,7 @@ export function CodRegistration() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [showForgotConfirm, setShowForgotConfirm] = useState(false);
   const [showFundModal, setShowFundModal] = useState(false);
+  const [accountNotFound, setAccountNotFound] = useState(false);
   const [fundRequests, setFundRequests] = useState<FundRequest[]>([]);
   const [fundAmount, setFundAmount] = useState('');
   const [fundBankName, setFundBankName] = useState('');
@@ -350,7 +338,6 @@ export function CodRegistration() {
     if (!showForgotModal) {
       setForgotEmail('');
       setForgotStep('email');
-      setForgotAccountId(null);
       setForgotNewPassword('');
       setForgotConfirmPassword('');
       setForgotError('');
@@ -359,14 +346,6 @@ export function CodRegistration() {
       setShowForgotConfirm(false);
     }
   }, [showForgotModal]);
-
-  useEffect(() => {
-    if (viewMode !== 'account') return;
-    const sync = () => setFundRequests(loadFundRequests());
-    sync();
-    const interval = window.setInterval(sync, 4000);
-    return () => window.clearInterval(interval);
-  }, [viewMode]);
 
   useEffect(() => {
     if (!showFundModal) {
@@ -387,36 +366,69 @@ export function CodRegistration() {
   }, [showFundModal, loginAccount]);
 
   useEffect(() => {
-    const session = loadCodSession();
-    if (session) {
-      setLoginAccount(session);
+    let unsubscribeAccount = () => {};
+    let unsubscribeFunds = () => {};
+    let unsubscribeBookings = () => {};
+    let didUpdateLogin = false;
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      unsubscribeAccount();
+      unsubscribeFunds();
+      unsubscribeBookings();
+      didUpdateLogin = false;
+      if (!user) {
+        setLoginAccount(null);
+        setViewMode('register');
+        setFundRequests([]);
+        setBookingSnapshot([]);
+        setAccountNotFound(false);
+        setAuthChecking(false);
+        return;
+      }
+      setAuthChecking(true);
+      setAccountNotFound(false);
       setViewMode('account');
-    }
-  }, []);
-
-  useEffect(() => {
-    if (viewMode === 'account') {
-      setBookingSnapshot(loadBookings());
-      const session = loadCodSession();
-      if (session) {
-        setLoginAccount(session);
-      }
-    }
-  }, [viewMode, showLoginModal, submitted]);
-
-  useEffect(() => {
-    if (viewMode !== 'account') return;
-    const sync = () => {
-      setBookingSnapshot(loadBookings());
-      const session = loadCodSession();
-      if (session) {
-        setLoginAccount(session);
-      }
+      unsubscribeAccount = subscribeCodAccount(user.uid, (account) => {
+        if (account) {
+          setLoginAccount(account);
+          setAccountNotFound(false);
+          if (!didUpdateLogin) {
+            didUpdateLogin = true;
+            updateCodAccountLastLogin(account.id).catch(() => undefined);
+          }
+        } else {
+          setLoginAccount(null);
+          setAccountNotFound(false);
+          setViewMode('register');
+        }
+        setAuthChecking(false);
+      }, (error) => {
+        console.error('[COD] account subscribe failed', error);
+        setAccountNotFound(false);
+        setViewMode('register');
+        setAuthChecking(false);
+      });
+      unsubscribeFunds = subscribeFundRequestsByAccount(
+        user.uid,
+        setFundRequests,
+        (error) => {
+          console.error('[COD] fund request subscribe failed', error);
+        }
+      );
+      unsubscribeBookings = subscribeBookingsByMerchant(
+        user.uid,
+        setBookingSnapshot,
+        (error) => {
+          console.error('[COD] booking subscribe failed', error);
+        }
+      );
+    });
+    return () => {
+      unsubscribeAuth();
+      unsubscribeAccount();
+      unsubscribeFunds();
+      unsubscribeBookings();
     };
-    sync();
-    const interval = window.setInterval(sync, 4000);
-    return () => window.clearInterval(interval);
-  }, [viewMode]);
+  }, []);
 
   useEffect(() => {
     if (viewMode === 'account') {
@@ -543,8 +555,9 @@ export function CodRegistration() {
     goToRegistration(selectedPlan);
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setSubmitError('');
     if (!selectedPlan) {
       setPlanError('Please select a plan to continue.');
       planRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -553,46 +566,73 @@ export function CodRegistration() {
     if (!validateStep(currentStep)) return;
     if (!selectedPlanData) return;
     const nowIso = new Date().toISOString();
-    const idSuffix = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
-    const cityCode = getCityCode(formData.city || formData.address || '');
-    addCodAccount({
-      id: `COD-${cityCode}-${Date.now()}-${idSuffix}`,
-      planCode: selectedPlanData.code,
-      planName: selectedPlanData.name,
-      planTotal: selectedPlanData.base + selectedPlanData.charges,
-      walletBalance: selectedPlanData.base,
-      status: 'pending',
-      statusHistory: [{ status: 'pending', at: nowIso }],
-      createdAt: nowIso,
-      companyName: formData.companyName,
-      companyLegalName: formData.companyLegalName,
-      businessType: formData.businessType,
-      website: formData.website,
-      contactName: formData.contactName,
-      phone: formData.phone,
-      email: formData.email,
-      altPhone: formData.altPhone,
-      address: formData.address,
-      cnic: formData.cnic,
-      bankName: formData.bankName,
-      accountTitle: formData.accountTitle,
-      accountNumber: formData.accountNumber,
-      iban: formData.iban,
-      swiftCode: formData.swiftCode,
-      branchName: formData.branchName,
-      branchCode: formData.branchCode,
-      city: formData.city,
-      pickupTimings: formData.pickupTimings,
-      monthlyShipment: formData.monthlyShipment,
-      specialInstructions: formData.specialInstructions,
-      googleMapPin: formData.googleMapPin,
-      password: formData.password
-    });
-    setSubmitted(true);
-    setShowSuccessModal(true);
+    const email = formData.email.trim().toLowerCase();
+    try {
+      const credential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        formData.password
+      );
+      await addCodAccount(credential.user.uid, {
+        planCode: selectedPlanData.code,
+        planName: selectedPlanData.name,
+        planTotal: selectedPlanData.base + selectedPlanData.charges,
+        walletBalance: selectedPlanData.base,
+        status: 'pending',
+        statusHistory: [{ status: 'pending', at: nowIso }],
+        createdAt: nowIso,
+        companyName: formData.companyName,
+        companyLegalName: formData.companyLegalName,
+        businessType: formData.businessType,
+        website: formData.website,
+        contactName: formData.contactName,
+        phone: formData.phone,
+        email,
+        altPhone: formData.altPhone,
+        address: formData.address,
+        cnic: formData.cnic,
+        bankName: formData.bankName,
+        accountTitle: formData.accountTitle,
+        accountNumber: formData.accountNumber,
+        iban: formData.iban,
+        swiftCode: formData.swiftCode,
+        branchName: formData.branchName,
+        branchCode: formData.branchCode,
+        city: formData.city,
+        pickupTimings: formData.pickupTimings,
+        monthlyShipment: formData.monthlyShipment,
+        specialInstructions: formData.specialInstructions,
+        googleMapPin: formData.googleMapPin
+      });
+      setSubmitted(true);
+      setShowSuccessModal(true);
+    } catch (error) {
+      const code =
+        typeof error === 'object' && error && 'code' in error
+          ? String((error as { code: string }).code)
+          : '';
+      if (code === 'auth/email-already-in-use') {
+        setErrors((prev) => ({
+          ...prev,
+          email: 'Email already registered. Please sign in.'
+        }));
+        setSubmitError('Email already registered. Please sign in.');
+      } else if (code === 'auth/invalid-email') {
+        setErrors((prev) => ({ ...prev, email: 'Enter a valid email.' }));
+        setSubmitError('Enter a valid email address.');
+      } else if (code === 'auth/weak-password') {
+        setErrors((prev) => ({
+          ...prev,
+          password: 'Password must be at least 6 characters.'
+        }));
+        setSubmitError('Password is too weak.');
+      } else {
+        setSubmitError('Unable to create your account. Please try again.');
+      }
+    }
   };
 
-  const handleLogin = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (isSigningIn) return;
     setIsSigningIn(true);
@@ -606,40 +646,31 @@ export function CodRegistration() {
       setIsSigningIn(false);
       return;
     }
-    const accounts = loadCodAccounts();
-    const match =
-      accounts.find(
-        (account) =>
-          account.email.trim().toLowerCase() === email &&
-          account.password === password
-      ) ?? null;
-    if (!match) {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      if (rememberMe) {
+        localStorage.setItem('bearfast_login_email', email);
+      } else {
+        localStorage.removeItem('bearfast_login_email');
+      }
+      setAuthChecking(true);
+      navigate('/cod-registration', { replace: true });
+      setLoginSuccess(true);
+      setShowAccountPassword(false);
+      setLoginNoticeTone('success');
+      setLoginNotice('Signed in successfully.');
+      setTimeout(() => {
+        setShowLoginModal(false);
+        setLoginSuccess(false);
+      }, 600);
+    } catch {
       setLoginError('Invalid email or password.');
+    } finally {
       setIsSigningIn(false);
-      return;
     }
-    if (rememberMe) {
-      localStorage.setItem('bearfast_login_email', email);
-    } else {
-      localStorage.removeItem('bearfast_login_email');
-    }
-    setCodSession(match.id);
-    setLoginAccount(match);
-    setViewMode('account');
-    setLoginSuccess(true);
-    setShowAccountPassword(false);
-    setLoginNoticeTone('success');
-    setLoginNotice(
-      `Welcome back. Your account status is ${match.status.toUpperCase()}.`
-    );
-    setIsSigningIn(false);
-    setTimeout(() => {
-      setShowLoginModal(false);
-      setLoginSuccess(false);
-    }, 600);
   };
 
-  const handleForgotLookup = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleForgotLookup = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setForgotError('');
     setForgotSuccess('');
@@ -652,50 +683,20 @@ export function CodRegistration() {
       setForgotError('Enter a valid email address.');
       return;
     }
-    const accounts = loadCodAccounts();
-    const match =
-      accounts.find((account) => account.email?.trim().toLowerCase() === email) ??
-      null;
-    if (!match) {
-      setForgotError('No account found with this email.');
-      return;
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setForgotSuccess('Password reset email sent. Please check your inbox.');
+    } catch {
+      setForgotError('Unable to send reset email. Check the address.');
     }
-    setForgotAccountId(match.id);
-    setForgotStep('reset');
   };
 
   const handleForgotReset = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!forgotAccountId) return;
-    setForgotError('');
-    setForgotSuccess('');
-    const nextPassword = forgotNewPassword.trim();
-    const confirmPassword = forgotConfirmPassword.trim();
-    if (!nextPassword) {
-      setForgotError('Please enter a new password.');
-      return;
-    }
-    if (nextPassword.length < 8) {
-      setForgotError('Password must be at least 8 characters.');
-      return;
-    }
-    if (nextPassword !== confirmPassword) {
-      setForgotError('Passwords do not match.');
-      return;
-    }
-    const updated = updateCodAccountPassword(forgotAccountId, nextPassword);
-    if (!updated) {
-      setForgotError('Unable to update password. Try again.');
-      return;
-    }
-    setForgotSuccess('Password updated. You can sign in now.');
-    setTimeout(() => {
-      setShowForgotModal(false);
-      setShowLoginModal(true);
-    }, 600);
+    setForgotError('Please use the reset email link to update your password.');
   };
 
-  const handleFundSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleFundSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!loginAccount) return;
     setFundError('');
@@ -723,7 +724,7 @@ export function CodRegistration() {
       return;
     }
     const idSuffix = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
-    addFundRequest({
+    await addFundRequest({
       id: `FUND-${Date.now()}-${idSuffix}`,
       accountId: loginAccount.id,
       companyName: loginAccount.companyName,
@@ -739,7 +740,6 @@ export function CodRegistration() {
       createdAt: new Date().toISOString(),
       status: 'pending'
     });
-    setFundRequests(loadFundRequests());
     setShowFundModal(false);
     setLastFundAmount(amountValue);
     setShowFundSentModal(true);
@@ -795,8 +795,8 @@ export function CodRegistration() {
     window.URL.revokeObjectURL(url);
   };
 
-  const handlePasswordUpdate = () => {
-    if (!loginAccount) return;
+  const handlePasswordUpdate = async () => {
+    if (!loginAccount || !auth.currentUser) return;
     const nextPassword = newAccountPassword.trim();
     const confirmPassword = confirmAccountPassword.trim();
     setAccountPasswordError('');
@@ -813,16 +813,25 @@ export function CodRegistration() {
       setAccountPasswordError('Passwords do not match.');
       return;
     }
-    const updated = updateCodAccountPassword(loginAccount.id, nextPassword);
-    if (!updated) {
-      setAccountPasswordError('Unable to update password. Try again.');
-      return;
+    try {
+      await updatePassword(auth.currentUser, nextPassword);
+      setNewAccountPassword('');
+      setConfirmAccountPassword('');
+      setShowAccountPassword(false);
+      setAccountPasswordSuccess('Password updated successfully.');
+    } catch (error) {
+      const code =
+        typeof error === 'object' && error && 'code' in error
+          ? String((error as { code: string }).code)
+          : '';
+      if (code === 'auth/requires-recent-login') {
+        setAccountPasswordError(
+          'Please sign in again before changing your password.'
+        );
+      } else {
+        setAccountPasswordError('Unable to update password. Try again.');
+      }
     }
-    setLoginAccount(updated);
-    setNewAccountPassword('');
-    setConfirmAccountPassword('');
-    setShowAccountPassword(false);
-    setAccountPasswordSuccess('Password updated. Use this new password next login.');
   };
 
   const handleCopyTracking = async (value: string) => {
@@ -853,22 +862,11 @@ export function CodRegistration() {
     }
   };
 
-  const handleClearDashboard = () => {
+  const handleClearDashboard = async () => {
     if (!loginAccount) return;
-    const email = loginAccount.email?.trim().toLowerCase();
-    const bookings = loadBookings();
-    const remaining = bookings.filter((booking) => {
-      if (booking.merchantId && booking.merchantId === loginAccount.id) {
-        return false;
-      }
-      if (email && booking.merchantEmail?.toLowerCase() === email) {
-        return false;
-      }
-      return true;
-    });
-    saveBookings(remaining);
-    deleteCodAccount(loginAccount.id);
-    clearCodSession();
+    await deleteBookingsByMerchantId(loginAccount.id);
+    await deleteCodAccount(loginAccount.id);
+    await signOut(auth);
     setLoginAccount(null);
     setViewMode('register');
     setShowClearModal(false);
@@ -1071,6 +1069,16 @@ export function CodRegistration() {
     };
   }, [profileOpen]);
 
+  if (authChecking) {
+    return (
+      <main className="w-full pt-20 min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-4 text-sm text-slate-600 shadow-sm">
+          Loading your account...
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main
       className={`w-full pt-20 min-h-screen ${
@@ -1080,7 +1088,8 @@ export function CodRegistration() {
             : 'bg-[#F8FAFC]'
           : 'bg-gradient-to-b from-slate-50 via-white to-slate-100/70'
       }`}>
-      {viewMode === 'account' && loginAccount ? (
+      {viewMode === 'account' ? (
+        loginAccount ? (
         <div className="min-h-screen" style={{ fontFamily: "'Poppins', 'Inter', system-ui, sans-serif" }}>
           <aside
             className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-64 bg-[#0F172A] text-white flex-col">
@@ -1234,9 +1243,7 @@ export function CodRegistration() {
                           <button
                             type="button"
                             onClick={() => {
-                              clearCodSession();
-                              setLoginAccount(null);
-                              setViewMode('register');
+                              signOut(auth);
                               setProfileOpen(false);
                             }}
                             className="w-full text-left px-3 py-2 rounded-xl text-sm font-semibold text-rose-600 hover:bg-rose-50">
@@ -1260,9 +1267,7 @@ export function CodRegistration() {
                   <button
                     type="button"
                     onClick={() => {
-                      clearCodSession();
-                      setLoginAccount(null);
-                      setViewMode('register');
+                      signOut(auth);
                     }}
                     className="btn-ripple col-span-2 sm:col-span-1 w-full sm:w-auto text-center px-5 py-2.5 rounded-full border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50">
                     Logout
@@ -2236,7 +2241,7 @@ export function CodRegistration() {
                       <div className="flex items-center gap-3">
                         <input
                           type={showAccountPassword ? 'text' : 'password'}
-                          value={loginAccount.password || ''}
+                          value="********"
                           readOnly
                           className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 bg-white/10 text-white focus:outline-none"
                         />
@@ -2306,6 +2311,40 @@ export function CodRegistration() {
             </Link>
           )}
         </div>
+        ) : (
+          <div className="min-h-screen flex items-center justify-center px-4">
+            <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl">
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
+                Account
+              </p>
+              <h2 className="text-2xl font-black text-slate-900 mt-2">
+                {accountNotFound ? 'Account Not Found' : 'Loading Dashboard'}
+              </h2>
+              <p className="text-sm text-slate-600 mt-3">
+                {accountNotFound
+                  ? 'We could not find your COD account data for this email. Please register again or contact support.'
+                  : 'We are syncing your dashboard data. Please wait a moment.'}
+              </p>
+              <div className="mt-6 flex flex-col sm:flex-row gap-3 sm:justify-center">
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="px-5 py-3 rounded-full border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50">
+                  Try Again
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    signOut(auth).catch(() => undefined);
+                    navigate('/cod-registration');
+                  }}
+                  className="px-5 py-3 rounded-full bg-slate-900 text-white font-semibold hover:bg-slate-800">
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </div>
+        )
       ) : (
         <>
           {!registerOnly && (
@@ -2953,6 +2992,11 @@ export function CodRegistration() {
                 </div>
               )}
 
+              {submitError && (
+                <div className="mt-4 text-sm font-semibold text-rose-600">
+                  {submitError}
+                </div>
+              )}
               <div className="mt-6 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
                 <button
                   type="button"
@@ -3257,6 +3301,11 @@ export function CodRegistration() {
                     {forgotError && (
                       <div className="text-sm text-rose-600 font-semibold">
                         {forgotError}
+                      </div>
+                    )}
+                    {forgotSuccess && (
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 font-semibold animate-fade-up">
+                        {forgotSuccess}
                       </div>
                     )}
                     <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between pt-2">

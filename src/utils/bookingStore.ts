@@ -1,3 +1,19 @@
+import {
+  arrayUnion,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+  writeBatch
+} from 'firebase/firestore';
+import { db } from '../lib/firebase';
+
 export type BookingStatusKey =
   | 'pending'
   | 'confirmed'
@@ -19,11 +35,12 @@ export interface Booking {
   statusHistory: StatusHistoryItem[];
   rejectionReason?: string;
   isCod?: boolean;
-  merchantId?: string;
-  merchantEmail?: string;
-  merchantName?: string;
-  merchantPlan?: string;
-  merchantCity?: string;
+  userId: string;
+  merchantId?: string | null;
+  merchantEmail?: string | null;
+  merchantName?: string | null;
+  merchantPlan?: string | null;
+  merchantCity?: string | null;
   shippingCharge?: number;
   senderName: string;
   senderPhone: string;
@@ -103,64 +120,156 @@ export const STATUS_OPTIONS: {
 export const isCodBooking = (booking: Booking) => {
   if (typeof booking.isCod === 'boolean') return booking.isCod;
   if (booking.merchantId) return true;
-  const codValue = Number(booking.codAmount || 0);
-  return !Number.isNaN(codValue) && codValue > 0;
+  return false;
 };
 
-const STORAGE_KEY = 'bearfast_bookings';
+const COLLECTION = 'bookings';
 
-export const loadBookings = (): Booking[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Booking[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
-  } catch {
-    return [];
-  }
+const mapDoc = (docSnap: { data: () => Booking; id: string }) => {
+  const data = docSnap.data();
+  return {
+    ...data,
+    trackingId: data.trackingId || docSnap.id
+  };
 };
 
-export const saveBookings = (bookings: Booking[]) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(bookings));
+export const subscribeBookings = (
+  onChange: (items: Booking[]) => void,
+  onError?: (error: Error) => void
+) => {
+  const q = query(collection(db, COLLECTION), orderBy('createdAt', 'desc'));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const next = snapshot.docs.map((docSnap) => mapDoc(docSnap));
+      onChange(next);
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
 };
 
-export const addBooking = (booking: Booking) => {
-  const bookings = loadBookings();
-  bookings.unshift(booking);
-  saveBookings(bookings);
+export const subscribeBookingsByMerchant = (
+  merchantId: string,
+  onChange: (items: Booking[]) => void,
+  onError?: (error: Error) => void
+) => {
+  const q = query(collection(db, COLLECTION), where('merchantId', '==', merchantId));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const next = snapshot.docs.map((docSnap) => mapDoc(docSnap));
+      next.sort((a, b) => {
+        const aTime = new Date(a.createdAt).getTime();
+        const bTime = new Date(b.createdAt).getTime();
+        return bTime - aTime;
+      });
+      onChange(next);
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
 };
 
-export const getBooking = (trackingId: string) => {
-  const bookings = loadBookings();
-  return bookings.find((booking) => booking.trackingId === trackingId);
+export const subscribeBooking = (
+  trackingId: string,
+  onChange: (item: Booking | null) => void,
+  onError?: (error: Error) => void
+) => {
+  const ref = doc(db, COLLECTION, trackingId);
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        onChange(null);
+        return;
+      }
+      onChange(mapDoc(snapshot as { data: () => Booking; id: string }));
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
 };
 
-export const updateBookingStatus = (
+export const loadBookings = async (): Promise<Booking[]> => {
+  const q = query(collection(db, COLLECTION), orderBy('createdAt', 'desc'));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((docSnap) => mapDoc(docSnap));
+};
+
+export const addBooking = async (booking: Booking) => {
+  const ref = doc(db, COLLECTION, booking.trackingId);
+  await setDoc(ref, booking);
+};
+
+export const getBooking = async (trackingId: string) => {
+  const ref = doc(db, COLLECTION, trackingId);
+  const snap = await getDoc(ref);
+  return snap.exists() ? (snap.data() as Booking) : null;
+};
+
+export const updateBookingStatus = async (
   trackingId: string,
   status: BookingStatusKey,
   rejectionReason?: string
 ) => {
-  const bookings = loadBookings();
-  const index = bookings.findIndex(
-    (booking) => booking.trackingId === trackingId
-  );
-  if (index === -1) return;
-  const booking = bookings[index];
-  if (booking.status !== status) {
-    booking.status = status;
-    booking.statusHistory = [
-      ...booking.statusHistory,
-      { status, at: new Date().toISOString() }
-    ];
+  const ref = doc(db, COLLECTION, trackingId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const current = snap.data() as Booking;
+  const updates: Record<string, unknown> = {
+    status
+  };
+  if (current.status !== status) {
+    updates.statusHistory = arrayUnion({ status, at: new Date().toISOString() });
   }
   if (status === 'delivery_rejected') {
-    booking.rejectionReason = rejectionReason?.trim() || 'Not provided';
-  } else if (booking.rejectionReason) {
-    booking.rejectionReason = '';
+    updates.rejectionReason = rejectionReason?.trim() || 'Not provided';
+  } else if (current.rejectionReason) {
+    updates.rejectionReason = '';
   }
-  bookings[index] = booking;
-  saveBookings(bookings);
+  await updateDoc(ref, updates);
+};
+
+export const deleteAllBookings = async () => {
+  const snapshot = await getDocs(collection(db, COLLECTION));
+  if (snapshot.empty) return;
+  let batch = writeBatch(db);
+  let count = 0;
+  for (const docSnap of snapshot.docs) {
+    batch.delete(docSnap.ref);
+    count += 1;
+    if (count === 450) {
+      await batch.commit();
+      batch = writeBatch(db);
+      count = 0;
+    }
+  }
+  await batch.commit();
+};
+
+export const deleteBookingsByMerchantId = async (merchantId: string) => {
+  const q = query(
+    collection(db, COLLECTION),
+    where('merchantId', '==', merchantId)
+  );
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return;
+  let batch = writeBatch(db);
+  let count = 0;
+  for (const docSnap of snapshot.docs) {
+    batch.delete(docSnap.ref);
+    count += 1;
+    if (count === 450) {
+      await batch.commit();
+      batch = writeBatch(db);
+      count = 0;
+    }
+  }
+  await batch.commit();
 };
 
 export const formatDate = (iso: string) =>

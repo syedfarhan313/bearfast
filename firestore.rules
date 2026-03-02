@@ -1,0 +1,102 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdminByEmail() {
+      return isSignedIn() &&
+        (request.auth.token.email == "bearfastofficial@gmail.com" ||
+         request.auth.token.email == "bearfast313@gmail.com");
+    }
+
+    function isAdminByUID() {
+      return isSignedIn()
+        && (
+          (exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid))
+            && get(/databases/$(database)/documents/adminUsers/$(request.auth.uid)).data.enabled == true)
+          ||
+          (exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+            && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == "admin")
+        );
+    }
+
+    function isAdmin() {
+      return isAdminByEmail() || isAdminByUID();
+    }
+
+    match /adminUsers/{uid} {
+      allow read: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /admins/{uid} {
+      allow read: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /codAccounts/{accountId} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == accountId);
+
+      allow create: if isSignedIn()
+        && request.auth.uid == accountId
+        && request.resource.data.status == "pending";
+
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly(["status", "approvedAt", "approvedBy", "rejectedAt", "rejectedBy", "walletBalance"]);
+
+      // User can only update lastLoginAt or decrement walletBalance on their own account
+      allow update: if isSignedIn()
+        && request.auth.uid == accountId
+        && (
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(["lastLoginAt"])
+          ||
+          (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(["walletBalance"])
+            && request.resource.data.walletBalance <= resource.data.walletBalance
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /bookings/{bookingId} {
+      allow get: if isAdmin() || isSignedIn();
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == "pending";
+
+      allow read: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /fundRequests/{requestId} {
+      allow create: if isSignedIn()
+        && request.resource.data.accountId == request.auth.uid;
+
+      allow read: if isAdmin();
+
+      allow read: if isSignedIn()
+        && resource.data.accountId == request.auth.uid;
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /acceptedFundRequests/{requestId} {
+      allow read: if isAdmin();
+      allow read: if isSignedIn()
+        && resource.data.accountId == request.auth.uid;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

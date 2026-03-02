@@ -1,6 +1,7 @@
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import {
   Booking,
   BookingStatusKey,
@@ -8,8 +9,8 @@ import {
   formatDate,
   formatTime,
   isCodBooking,
-  loadBookings,
-  saveBookings,
+  deleteAllBookings,
+  subscribeBookings,
   updateBookingStatus
 } from '../utils/bookingStore';
 import {
@@ -19,14 +20,16 @@ import {
   SERVICE_CITIES,
   adjustCodAccountWallet,
   clearCodAccounts,
-  loadCodAccounts,
+  subscribeCodAccounts,
   updateCodAccountStatus
 } from '../utils/codAccountStore';
 import {
   FundRequest,
-  loadFundRequests,
+  addAcceptedFundRequest,
+  subscribeFundRequests,
   updateFundRequestStatus
 } from '../utils/fundRequestStore';
+import { auth } from '../lib/firebase';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -40,6 +43,7 @@ import {
   Clock,
   Edit3,
   LayoutGrid,
+  Lock,
   Mail,
   MapPin,
   Phone,
@@ -91,6 +95,29 @@ export function Admin() {
   const [adminActivity, setAdminActivity] = useState<
     Record<string, { title: string; detail?: string; date: string }[]>
   >({});
+  const [bookingsLoadError, setBookingsLoadError] = useState('');
+  const [codAccountsLoadError, setCodAccountsLoadError] = useState('');
+  const [fundRequestsLoadError, setFundRequestsLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [liveNotifications, setLiveNotifications] = useState<
+    {
+      id: string;
+      type: 'booking' | 'fund';
+      title: string;
+      detail: string;
+      accountId?: string;
+      trackingId?: string;
+    }[]
+  >([]);
+  const [highlightedAccounts, setHighlightedAccounts] = useState<
+    Record<string, number>
+  >({});
+  const bookingIdsRef = useRef<Set<string>>(new Set());
+  const fundIdsRef = useRef<Set<string>>(new Set());
+  const bookingsInitializedRef = useRef(false);
+  const fundsInitializedRef = useRef(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [authUser, setAuthUser] = useState<User | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
     description?: string;
@@ -134,6 +161,19 @@ export function Admin() {
     if (Number.isNaN(parsed.getTime())) return '-';
     return `${formatDate(value)} ${formatTime(value)}`;
   };
+  const addNotification = (next: Omit<typeof liveNotifications[number], 'id'>) => {
+    const entry = { ...next, id: `${Date.now()}-${Math.random()}` };
+    setLiveNotifications((prev) => [entry, ...prev].slice(0, 6));
+  };
+  const flashAccount = (accountId?: string | null) => {
+    if (!accountId) return;
+    setHighlightedAccounts((prev) => ({
+      ...prev,
+      [accountId]: Date.now() + 30000
+    }));
+  };
+  const isHighlighted = (accountId?: string | null) =>
+    Boolean(accountId && highlightedAccounts[accountId]);
   const maskValue = (value: string, keepStart = 2, keepEnd = 2) => {
     if (!value) return '-';
     if (value.length <= keepStart + keepEnd + 2) return value;
@@ -188,24 +228,56 @@ export function Admin() {
     '3-7-day': { baseHalf: 220, baseOne: 360, additionalPerKg: 200 },
     'next-day': { baseHalf: 150, baseOne: 260, additionalPerKg: 150 }
   };
-  const isNonCodBooking = (booking: Booking) => {
-    const codValue = Number(booking.codAmount || 0);
-    return Number.isNaN(codValue) || codValue <= 0;
-  };
+  const isNonCodBooking = (booking: Booking) => !isCodBooking(booking);
   useEffect(() => {
-    setBookings(loadBookings());
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setAuthUser(user);
+      setAuthReady(true);
+    });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    setCodAccounts(loadCodAccounts());
-  }, []);
+    if (!authReady || !authUser) return;
+    const unsubscribe = subscribeBookings((items) => {
+      setBookings(items);
+      setBookingsLoadError('');
+    }, (error) => {
+      console.error('[Admin] bookings subscribe failed', error);
+      setBookingsLoadError(
+        'Unable to load bookings. Please check Firebase permissions.'
+      );
+    });
+    return () => unsubscribe();
+  }, [authReady, authUser?.uid]);
 
   useEffect(() => {
-    const sync = () => setFundRequests(loadFundRequests());
-    sync();
-    const interval = window.setInterval(sync, 4000);
-    return () => window.clearInterval(interval);
-  }, []);
+    if (!authReady || !authUser) return;
+    const unsubscribe = subscribeCodAccounts((items) => {
+      setCodAccounts(items);
+      setCodAccountsLoadError('');
+    }, (error) => {
+      console.error('[Admin] cod accounts subscribe failed', error);
+      setCodAccountsLoadError(
+        'Unable to load COD accounts. Please check Firebase permissions.'
+      );
+    });
+    return () => unsubscribe();
+  }, [authReady, authUser?.uid]);
+
+  useEffect(() => {
+    if (!authReady || !authUser) return;
+    const unsubscribe = subscribeFundRequests((items) => {
+      setFundRequests(items);
+      setFundRequestsLoadError('');
+    }, (error) => {
+      console.error('[Admin] fund requests subscribe failed', error);
+      setFundRequestsLoadError(
+        'Unable to load fund requests. Please check Firebase permissions.'
+      );
+    });
+    return () => unsubscribe();
+  }, [authReady, authUser?.uid]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -216,6 +288,21 @@ export function Admin() {
       setActivePanel('bookings');
     }
   }, [location.search]);
+
+  useEffect(() => {
+    if (Object.keys(highlightedAccounts).length === 0) return;
+    const timer = window.setInterval(() => {
+      setHighlightedAccounts((prev) => {
+        const now = Date.now();
+        const next: Record<string, number> = {};
+        Object.entries(prev).forEach(([id, expires]) => {
+          if (expires > now) next[id] = expires;
+        });
+        return next;
+      });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [highlightedAccounts]);
 
   const counts = useMemo(() => {
     const nonCodBookings = bookings.filter((booking) => isNonCodBooking(booking));
@@ -548,6 +635,58 @@ export function Admin() {
     );
   }, [pendingFundRequests, selectedAccount]);
 
+  useEffect(() => {
+    const nextIds = new Set(bookings.map((item) => item.trackingId));
+    if (!bookingsInitializedRef.current) {
+      bookingIdsRef.current = nextIds;
+      bookingsInitializedRef.current = true;
+      return;
+    }
+    const prev = bookingIdsRef.current;
+    const newBookings = bookings.filter((item) => !prev.has(item.trackingId));
+    bookingIdsRef.current = nextIds;
+    newBookings.forEach((booking) => {
+      if (!isCodBooking(booking)) return;
+      const accountId = booking.merchantId || undefined;
+      const accountName =
+        codAccounts.find((account) => account.id === accountId)?.companyName ||
+        booking.merchantName ||
+        'Merchant';
+      flashAccount(accountId);
+      addNotification({
+        type: 'booking',
+        title: 'New COD booking received',
+        detail: `${accountName} • ${booking.trackingId}`,
+        accountId,
+        trackingId: booking.trackingId
+      });
+    });
+  }, [bookings, codAccounts]);
+
+  useEffect(() => {
+    const pending = fundRequests.filter((request) => request.status === 'pending');
+    const nextIds = new Set(pending.map((request) => request.id));
+    if (!fundsInitializedRef.current) {
+      fundIdsRef.current = nextIds;
+      fundsInitializedRef.current = true;
+      return;
+    }
+    const prev = fundIdsRef.current;
+    const newRequests = pending.filter((request) => !prev.has(request.id));
+    fundIdsRef.current = nextIds;
+    newRequests.forEach((request) => {
+      flashAccount(request.accountId);
+      addNotification({
+        type: 'fund',
+        title: 'New fund request received',
+        detail: `${request.companyName || 'Merchant'} • Rs. ${formatAmount(
+          request.amount
+        )}`,
+        accountId: request.accountId
+      });
+    });
+  }, [fundRequests]);
+
   const merchantActivity = useMemo(() => {
     if (!selectedAccount) return [];
     const base: { title: string; detail?: string; date: string }[] = [];
@@ -687,7 +826,7 @@ export function Admin() {
     setConfirmAction({ title, description, onConfirm, confirmLabel });
   };
 
-  const handleStatusChange = (
+  const handleStatusChange = async (
     booking: Booking,
     nextStatus: BookingStatusKey
   ) => {
@@ -697,38 +836,52 @@ export function Admin() {
       setRejectionError('');
       return;
     }
-    updateBookingStatus(booking.trackingId, nextStatus);
-    setBookings(loadBookings());
+    await updateBookingStatus(booking.trackingId, nextStatus);
   };
 
-  const handleCodStatusChange = (
+  const handleCodStatusChange = async (
     accountId: string,
     nextStatus: CodAccountStatus
   ) => {
-    updateCodAccountStatus(accountId, nextStatus);
-    setCodAccounts(loadCodAccounts());
-    pushAdminActivity(
-      accountId,
-      `Status changed to ${statusLabel(nextStatus)}`,
-      'Admin control'
-    );
+    try {
+      await updateCodAccountStatus(accountId, nextStatus);
+      setActionError('');
+      pushAdminActivity(
+        accountId,
+        `Status changed to ${statusLabel(nextStatus)}`,
+        'Admin control'
+      );
+    } catch (error) {
+      console.error('[Admin] status update failed', error);
+      setActionError(
+        'Unable to update account status. Please check Firebase permissions.'
+      );
+    }
   };
 
-  const handleApproveFundRequest = (request: FundRequest) => {
-    updateFundRequestStatus(request.id, 'approved');
-    adjustCodAccountWallet(request.accountId, request.amount);
-    setFundRequests(loadFundRequests());
-    setCodAccounts(loadCodAccounts());
-    pushAdminActivity(
-      request.accountId,
-      'Fund request approved',
-      `Rs. ${formatAmount(request.amount)} added to wallet`
-    );
+  const handleApproveFundRequest = async (request: FundRequest) => {
+    try {
+      const approvedAt = new Date().toISOString();
+      const approvedBy = auth.currentUser?.email || null;
+      await updateFundRequestStatus(request.id, 'approved');
+      await adjustCodAccountWallet(request.accountId, request.amount);
+      await addAcceptedFundRequest(request, { approvedAt, approvedBy });
+      setActionError('');
+      pushAdminActivity(
+        request.accountId,
+        'Fund request approved',
+        `Rs. ${formatAmount(request.amount)} added to wallet`
+      );
+    } catch (error) {
+      console.error('[Admin] fund approve failed', error);
+      setActionError(
+        'Unable to approve fund request. Please check Firebase permissions.'
+      );
+    }
   };
 
-  const handleRejectFundRequest = (request: FundRequest) => {
-    updateFundRequestStatus(request.id, 'rejected');
-    setFundRequests(loadFundRequests());
+  const handleRejectFundRequest = async (request: FundRequest) => {
+    await updateFundRequestStatus(request.id, 'rejected');
     pushAdminActivity(
       request.accountId,
       'Fund request rejected',
@@ -736,15 +889,14 @@ export function Admin() {
     );
   };
 
-  const handleRejectSave = () => {
+  const handleRejectSave = async () => {
     if (!rejectionTarget) return;
     const reason = rejectionReason.trim();
     if (!reason) {
       setRejectionError('Please add a rejection reason.');
       return;
     }
-    updateBookingStatus(rejectionTarget, 'delivery_rejected', reason);
-    setBookings(loadBookings());
+    await updateBookingStatus(rejectionTarget, 'delivery_rejected', reason);
     setRejectionTarget(null);
     setRejectionReason('');
     setRejectionError('');
@@ -756,13 +908,13 @@ export function Admin() {
     setRejectionError('');
   };
 
-  const handleClear = () => {
-    saveBookings([]);
+  const handleClear = async () => {
+    await deleteAllBookings();
     setBookings([]);
   };
 
-  const handleCodClear = () => {
-    clearCodAccounts();
+  const handleCodClear = async () => {
+    await clearCodAccounts();
     setCodAccounts([]);
     setSelectedAccountId(null);
   };
@@ -793,6 +945,15 @@ export function Admin() {
       setTimeout(() => setCopiedId(''), 1500);
     }
   };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } finally {
+      navigate('/admin-login', { replace: true });
+    }
+  };
+
   return (
     <div
       className="admin-ui min-h-screen bg-gradient-to-b from-slate-50 via-slate-50 to-slate-100/70 text-slate-900 antialiased"
@@ -801,11 +962,6 @@ export function Admin() {
         <div className="px-6 py-6 flex items-center gap-3">
           <div className="h-11 w-11 rounded-2xl bg-white/10 flex items-center justify-center">
             <LayoutGrid className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <div className="text-xs uppercase tracking-[0.35em] text-white/50">
-              Bear Fast
-            </div>
           </div>
         </div>
         <nav className="px-4 space-y-2 flex-1">
@@ -830,9 +986,6 @@ export function Admin() {
             Non COD
           </button>
         </nav>
-        <div className="px-6 pb-6 text-xs text-white/40">
-          Premium logistics control center
-        </div>
       </aside>
 
       <div className="lg:pl-64">
@@ -865,6 +1018,51 @@ export function Admin() {
         </header>
 
         <main className="px-4 sm:px-6 lg:px-10 py-8 space-y-8">
+          {(bookingsLoadError || codAccountsLoadError || fundRequestsLoadError || actionError) && (
+            <section className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm">
+              {bookingsLoadError && <div>{bookingsLoadError}</div>}
+              {codAccountsLoadError && <div>{codAccountsLoadError}</div>}
+              {fundRequestsLoadError && <div>{fundRequestsLoadError}</div>}
+              {actionError && <div>{actionError}</div>}
+            </section>
+          )}
+          {liveNotifications.length > 0 && (
+            <section className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 shadow-sm space-y-2">
+              {liveNotifications.map((notice) => (
+                <div
+                  key={notice.id}
+                  className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="font-semibold">{notice.title}</span>{' '}
+                    <span className="text-emerald-700">{notice.detail}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {notice.accountId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActivePanel('cod');
+                          setSelectedAccountId(notice.accountId || null);
+                        }}
+                        className="px-3 py-1.5 rounded-full bg-white text-emerald-700 text-xs font-semibold border border-emerald-200 hover:bg-emerald-100">
+                        Open Profile
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLiveNotifications((prev) =>
+                          prev.filter((item) => item.id !== notice.id)
+                        )
+                      }
+                      className="text-xs text-emerald-700 hover:text-emerald-900">
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </section>
+          )}
           <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">
@@ -893,13 +1091,11 @@ export function Admin() {
                   Clear Bookings
                 </button>
               )}
-              <button
-                onClick={() => {
-                  window.location.href = '/';
-                }}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white hover:bg-red-700 transition-colors text-sm font-semibold shadow-lg shadow-red-600/25 border border-transparent focus:outline-none focus:ring-0 focus-visible:ring-0">
-                Logout
-              </button>
+            <button
+              onClick={handleLogout}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white hover:bg-red-700 transition-colors text-sm font-semibold shadow-lg shadow-red-600/25 border border-transparent focus:outline-none focus:ring-0 focus-visible:ring-0">
+              Logout
+            </button>
             </div>
           </div>
 
@@ -1102,7 +1298,11 @@ export function Admin() {
                       {selectedFundRequests.map((request) => (
                         <div
                           key={request.id}
-                          className="rounded-2xl border border-rose-100 bg-white p-5 shadow-sm">
+                          className={`rounded-2xl border border-rose-100 bg-white p-5 shadow-sm ${
+                            isHighlighted(request.accountId)
+                              ? 'ring-2 ring-rose-200 animate-pulse'
+                              : ''
+                          }`}>
                           <div className="flex flex-wrap items-start justify-between gap-4">
                             <div>
                               <p className="text-lg font-semibold text-slate-900">
@@ -2140,11 +2340,14 @@ export function Admin() {
                     Object.entries(stats.services).sort(
                       (a, b) => b[1] - a[1]
                     )[0]?.[0] || '-';
+                  const highlightClass = isHighlighted(account.id)
+                    ? 'ring-2 ring-emerald-300 bg-emerald-50/40 animate-pulse'
+                    : '';
                   return (
                     <div
                       key={account.id}
                       style={{ animationDelay: `${index * 0.04}s` }}
-                      className="rounded-3xl bg-white border border-slate-200 shadow-sm p-6 space-y-5 transition hover:shadow-xl hover:-translate-y-1 animate-fade-up">
+                      className={`rounded-3xl bg-white border border-slate-200 shadow-sm p-6 space-y-5 transition hover:shadow-xl hover:-translate-y-1 animate-fade-up ${highlightClass}`}>
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div>
                         <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
