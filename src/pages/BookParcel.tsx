@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { addBooking, getBooking } from '../utils/bookingStore';
 import {
@@ -21,6 +21,7 @@ export function BookParcel() {
   const [sessionAccount, setSessionAccount] =
     useState<CodAccountRequest | null>(null);
   const [bookingError, setBookingError] = useState('');
+  const generatedTrackingRef = useRef<string>('');
   const [formData, setFormData] = useState({
     senderName: '',
     senderPhone: '',
@@ -31,6 +32,11 @@ export function BookParcel() {
     receiverWhatsapp: '',
     receiverCity: 'Karachi',
     receiverAddress: '',
+    itemDetail: '',
+    specialInstruction: '',
+    referenceNo: '',
+    orderId: '',
+    pieces: '1',
     packageWeight: '0',
     packageWeightGrams: '500',
     outOfCity: false,
@@ -68,15 +74,15 @@ export function BookParcel() {
   }, []);
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >
   ) => {
-    const { name, value, type } = e.target;
+    const { name, value } = e.target;
+    const isCheckbox = (e.target as HTMLInputElement).type === 'checkbox';
     setFormData((prev) => ({
       ...prev,
-      [name]:
-        type === 'checkbox'
-          ? (e.target as HTMLInputElement).checked
-          : value
+      [name]: isCheckbox ? (e.target as HTMLInputElement).checked : value
     }));
   };
 
@@ -118,6 +124,13 @@ export function BookParcel() {
     if (lettersOnly.length > 0) return lettersOnly.toUpperCase();
     return 'PKG';
   };
+
+  useEffect(() => {
+    if (trackingId || formData.orderId || formData.referenceNo) return;
+    generatedTrackingRef.current = `${getCityCode(formData.receiverCity)}-${String(
+      Date.now()
+    ).slice(-6)}`;
+  }, [trackingId, formData.orderId, formData.referenceNo, formData.receiverCity]);
 
   const generateTrackingId = async (city: string) => {
     const code = getCityCode(city);
@@ -197,6 +210,16 @@ export function BookParcel() {
       return;
     }
     setBookingError('');
+    const trimmedItemDetail = formData.itemDetail.trim();
+    const piecesCount = Number.parseInt(formData.pieces, 10);
+    if (!trimmedItemDetail) {
+      setBookingError('Item detail is required.');
+      return;
+    }
+    if (!Number.isFinite(piecesCount) || piecesCount < 1) {
+      setBookingError('No. of pieces must be at least 1.');
+      return;
+    }
     const newTrackingId = await generateTrackingId(formData.receiverCity);
     const newDeliveryCode = generateDeliveryCode();
     const nowIso = new Date().toISOString();
@@ -207,6 +230,11 @@ export function BookParcel() {
       weightKg: Number(weightKg.toFixed(3)),
       codAmount: formData.codAmount || '0',
       outOfCity: formData.outOfCity,
+      itemDetail: trimmedItemDetail,
+      specialInstruction: formData.specialInstruction.trim() || '-',
+      referenceNo: formData.referenceNo.trim() || '-',
+      orderId: formData.orderId.trim() || '-',
+      pieces: piecesCount,
       bookedAt: nowIso,
       sender: {
         name: formData.senderName || '-',
@@ -257,6 +285,11 @@ export function BookParcel() {
       receiverWhatsapp: formData.receiverWhatsapp,
       receiverCity: formData.receiverCity,
       receiverAddress: formData.receiverAddress,
+      itemDetail: trimmedItemDetail,
+      specialInstruction: formData.specialInstruction.trim(),
+      referenceNo: formData.referenceNo.trim(),
+      orderId: formData.orderId.trim(),
+      pieces: piecesCount,
       weightKg: Number(weightKg.toFixed(3)),
       serviceType: selectedService.id,
       serviceTitle: selectedService.title,
@@ -312,6 +345,11 @@ export function BookParcel() {
       receiverWhatsapp: '',
       receiverCity: 'Karachi',
       receiverAddress: '',
+      itemDetail: '',
+      specialInstruction: '',
+      referenceNo: '',
+      orderId: '',
+      pieces: '1',
       packageWeight: '0',
       packageWeightGrams: '500',
       outOfCity: false,
@@ -389,6 +427,16 @@ export function BookParcel() {
     ? `Rs. ${outOfCityCharge}`
     : 'Rs. 0';
   const totalLabel = `Rs. ${totalCharge}`;
+  const ensureTrackingFallback = () => {
+    if (!generatedTrackingRef.current) {
+      generatedTrackingRef.current = `${getCityCode(formData.receiverCity)}-${String(
+        Date.now()
+      ).slice(-6)}`;
+    }
+    return generatedTrackingRef.current;
+  };
+  const displayTrackingId =
+    trackingId || formData.orderId || formData.referenceNo || ensureTrackingFallback();
   const walletBalance = sessionAccount
     ? sessionAccount.walletBalance ?? sessionAccount.planTotal ?? 0
     : null;
@@ -406,14 +454,420 @@ export function BookParcel() {
           maximumFractionDigits: 0
         })}`
       : '';
+
+  const summaryRows = [
+    { label: 'Sender Name', value: formData.senderName || '-' },
+    { label: 'Sender Phone', value: formData.senderPhone || '-' },
+    { label: 'Pickup City', value: formData.senderCity || '-' },
+    { label: 'Pickup Address', value: formData.senderAddress || '-' },
+    { label: 'Receiver Name', value: formData.receiverName || '-' },
+    { label: 'Receiver Phone', value: formData.receiverPhone || '-' },
+    { label: 'WhatsApp', value: formData.receiverWhatsapp || '-' },
+    { label: 'Destination City', value: formData.receiverCity || '-' },
+    { label: 'Delivery Address', value: formData.receiverAddress || '-' },
+    { label: 'Item Detail', value: formData.itemDetail || '-' },
+    { label: 'Special Instruction', value: formData.specialInstruction || '-' },
+    { label: 'Reference No.', value: formData.referenceNo || '-' },
+    { label: 'Order ID.', value: formData.orderId || '-' },
+    { label: 'No. of Pieces', value: formData.pieces || '-' },
+    { label: 'Service', value: selectedService.title },
+    { label: 'Weight', value: weightLabel },
+    { label: 'Base', value: baseLabel },
+    { label: 'Additional Charges', value: extraLabel },
+    { label: 'Out of City', value: outOfCityLabel },
+    { label: 'COD Amount', value: codLabel }
+  ];
+
+  const escapeHtml = (value: string) =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+  const buildBarcodeSvg = (value: string) => {
+    const cleanValue = value.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase();
+    const bars: string[] = [];
+    let x = 0;
+    const height = 52;
+    const gap = 1;
+    const bar = (w: number) => {
+      bars.push(
+        `<rect x="${x}" y="0" width="${w}" height="${height}" fill="#0f172a" />`
+      );
+      x += w + gap;
+    };
+    const space = (w: number) => {
+      x += w + gap;
+    };
+    bar(3);
+    cleanValue.split('').forEach((char) => {
+      const bits = char.charCodeAt(0).toString(2).padStart(7, '0');
+      bits.split('').forEach((bit) => {
+        if (bit === '1') {
+          bar(2);
+        } else {
+          space(2);
+        }
+      });
+      space(2);
+    });
+    bar(3);
+    const width = Math.max(160, x);
+    return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${bars.join(
+      ''
+    )}</svg>`;
+  };
+
+  const buildLabelPayload = () => {
+    const payloadTrackingId = displayTrackingId;
+    const payloadObject = {
+      trackingId: payloadTrackingId,
+      deliveryCode: deliveryCode || '000000',
+      service: selectedService.title,
+      weightKg: Number(weightKg.toFixed(3)),
+      codAmount: formData.codAmount || '0',
+      outOfCity: formData.outOfCity,
+      itemDetail: formData.itemDetail || '-',
+      specialInstruction: formData.specialInstruction || '-',
+      referenceNo: formData.referenceNo || '-',
+      orderId: formData.orderId || '-',
+      pieces: Number.parseInt(formData.pieces, 10) || 1,
+      bookedAt: new Date().toISOString(),
+      sender: {
+        name: formData.senderName || '-',
+        phone: formData.senderPhone || '-',
+        city: formData.senderCity || '-',
+        address: formData.senderAddress || '-'
+      },
+      receiver: {
+        name: formData.receiverName || '-',
+        phone: formData.receiverPhone || '-',
+        whatsapp: formData.receiverWhatsapp || '-',
+        city: formData.receiverCity || '-',
+        address: formData.receiverAddress || '-'
+      }
+    };
+    const encodedPayload = encodeURIComponent(JSON.stringify(payloadObject));
+    const envBase = (import.meta.env.VITE_PUBLIC_BASE_URL as string | undefined) || '';
+    const baseUrl = envBase.trim()
+      ? envBase.trim().replace(/\/+$/, '')
+      : window.location.origin;
+    return `${baseUrl}/label?data=${encodedPayload}`;
+  };
+
+  const buildSummaryHtml = (qrImage?: string) => {
+    const baseUrl = window.location.origin;
+    const logoUrl = `${baseUrl}/WhatsApp%20Image%202026-02-20%20at%203.09.46%20PM.jpeg`;
+    const trackingValue = displayTrackingId;
+    const datetimeValue = new Date().toLocaleString('en-PK', {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+    const shipperName =
+      sessionAccount?.companyName || formData.senderName || 'Bear Fast';
+    const shipperPhone = formData.senderPhone || '-';
+    const shipperAddress = formData.senderAddress || 'BEAR FAST COURIERS';
+    const consigneeName = formData.receiverName || '-';
+    const consigneePhone = formData.receiverPhone || '-';
+    const consigneeAddress = formData.receiverAddress || '-';
+    const paymentMode = formData.codAmount ? 'COD' : 'Cash';
+    const collectionAmount = formData.codAmount
+      ? `Rs. ${formData.codAmount}`
+      : 'Rs. 0';
+    const qrHtml = qrImage
+      ? `<img src="${qrImage}" alt="Shipment QR" />`
+      : `<div class="qr-placeholder">QR</div>`;
+    const barcodeSvg = buildBarcodeSvg(trackingValue);
+
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Order Summary</title>
+    <style>
+      * { box-sizing: border-box; }
+      :root {
+        --navy: #0b1526;
+        --teal: #0ea5a4;
+        --sky: #e0f2fe;
+        --card: #f8fafc;
+        --line: #e2e8f0;
+      }
+      body { margin: 0; font-family: "Garamond", "EB Garamond", "Times New Roman", serif; background: radial-gradient(circle at top, #f8fafc 0%, #e2e8f0 45%, #e0f2fe 100%); color: var(--navy); }
+      @page { size: A4; margin: 12mm; }
+      .page { padding: 20px; }
+      .label {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 22px;
+        max-width: 1040px;
+        margin: 0 auto;
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.15), 0 2px 6px rgba(15, 23, 42, 0.08);
+      }
+      .glass {
+        background: rgba(248, 250, 252, 0.72);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(148, 163, 184, 0.28);
+        border-radius: 16px;
+        box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+      }
+      .header-row { display: grid; grid-template-columns: 1.2fr 1.6fr 0.7fr; gap: 16px; align-items: center; }
+      .logo { display: flex; align-items: center; gap: 14px; }
+      .logo img { height: 112px; width: auto; object-fit: contain; image-rendering: -webkit-optimize-contrast; filter: drop-shadow(0 6px 14px rgba(15,23,42,0.18)); }
+      .brand { font-size: 13px; color: #334155; font-weight: 600; letter-spacing: 0.02em; }
+      .brand-title { font-size: 20px; font-weight: 700; color: var(--navy); }
+      .barcode-wrap { padding: 12px 14px; }
+      .barcode-text { text-align: center; font-size: 13px; font-weight: 700; letter-spacing: 0.12em; margin-top: 6px; color: var(--navy); }
+      .qr { display: flex; align-items: center; justify-content: center; padding: 10px; border-radius: 16px; }
+      .qr img { width: 140px; height: 140px; }
+      .qr-placeholder {
+        width: 140px; height: 140px; border: 2px dashed #94a3b8; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #94a3b8;
+      }
+      .section-title {
+        font-size: 16px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: var(--navy);
+        font-weight: 700;
+        margin-bottom: 10px;
+      }
+      h3.section-title { margin: 0 0 10px; }
+      .card {
+        padding: 16px 18px;
+        border-radius: 18px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
+      }
+      .info-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+      .info-item { padding: 8px 10px; border-radius: 12px; background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%); border: 1px solid var(--line); box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); }
+      .span-2 { grid-column: span 2; }
+      .info-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.12em; }
+      .info-value { font-size: 13px; font-weight: 600; margin-top: 4px; color: var(--navy); }
+      .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .kv { display: grid; grid-template-columns: 120px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px solid #e2e8f0; }
+      .kv:last-child { border-bottom: none; }
+      .kv-label { font-size: 12px; color: #64748b; font-weight: 600; }
+      .kv-value { font-size: 12.5px; color: var(--navy); font-weight: 600; }
+      .icon { width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; }
+      .package-grid { display: grid; grid-template-columns: 1.2fr 0.6fr 1.2fr; gap: 10px; }
+      .payment {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: linear-gradient(90deg, #e0f2fe 0%, #dbeafe 100%);
+        border: 1px solid #7dd3fc;
+        border-radius: 14px;
+        font-weight: 700;
+        color: var(--navy);
+        box-shadow: 0 10px 22px rgba(14, 165, 233, 0.18);
+      }
+      .footer-note {
+        margin-top: 12px;
+        padding: 12px 14px;
+        background: #f1f5f9;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        font-size: 12px;
+        color: #475569;
+        line-height: 1.6;
+      }
+      .muted { color: #64748b; }
+      .urdu { font-family: "Jameel Noori Nastaleeq", "Noto Nastaliq Urdu", "Noto Naskh Arabic", serif; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="label">
+        <div class="header-row">
+          <div class="logo">
+            <img src="${logoUrl}" alt="Bear Fast" />
+            <div>
+              <div class="brand-title">Bear Fast Couriers</div>
+              <div class="brand">Printed By: ${escapeHtml(
+                sessionAccount?.contactName || sessionAccount?.companyName || 'Bear Fast'
+              )}</div>
+            </div>
+          </div>
+          <div class="barcode-wrap glass">
+            ${barcodeSvg}
+            <div class="barcode-text">${escapeHtml(trackingValue)}</div>
+          </div>
+          <div class="qr glass">
+            ${qrHtml}
+          </div>
+        </div>
+
+        <div style="margin-top: 14px;" class="card">
+          <h3 class="section-title">Shipment Details</h3>
+          <div class="info-grid">
+            <div class="info-item span-2">
+              <div class="info-label">Service</div>
+              <div class="info-value">${escapeHtml(selectedService.title)}</div>
+            </div>
+            <div class="info-item span-2">
+              <div class="info-label">Shipment Mode</div>
+              <div class="info-value">Parcel</div>
+            </div>
+            <div class="info-item span-2">
+              <div class="info-label">Date / Time</div>
+              <div class="info-value">${escapeHtml(datetimeValue)}</div>
+            </div>
+            <div class="info-item span-2">
+              <div class="info-label">Order ID</div>
+              <div class="info-value">${escapeHtml(formData.orderId || trackingValue)}</div>
+            </div>
+            <div class="info-item span-2">
+              <div class="info-label">Origin</div>
+              <div class="info-value">${escapeHtml(formData.senderCity || '-')}</div>
+            </div>
+            <div class="info-item span-2">
+              <div class="info-label">Destination</div>
+              <div class="info-value">${escapeHtml(formData.receiverCity || '-')}</div>
+            </div>
+            <div class="info-item span-2">
+              <div class="info-label">Business Category</div>
+              <div class="info-value">Domestic</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 14px;" class="split">
+          <div class="card">
+            <h3 class="section-title">Sender Details</h3>
+            <div class="kv"><div class="kv-label">Name</div><div class="kv-value">${escapeHtml(shipperName)}</div></div>
+            <div class="kv">
+              <div class="kv-label">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92V21a1 1 0 0 1-1.09 1 19.86 19.86 0 0 1-8.63-3.07A19.5 19.5 0 0 1 3.07 11.72 19.86 19.86 0 0 1 0 3.09 1 1 0 0 1 1 2h4.09a1 1 0 0 1 1 .75l1 4a1 1 0 0 1-.29.95L5.21 9.29a16 16 0 0 0 9.5 9.5l1.59-1.59a1 1 0 0 1 .95-.29l4 1a1 1 0 0 1 .75 1z"/></svg>
+                Phone
+              </div>
+              <div class="kv-value">${escapeHtml(shipperPhone)}</div>
+            </div>
+            <div class="kv">
+              <div class="kv-label">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-12a7 7 0 1 1 14 0c0 5.5-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>
+                Address
+              </div>
+              <div class="kv-value">${escapeHtml(shipperAddress)}</div>
+            </div>
+          </div>
+          <div class="card">
+            <h3 class="section-title">Receiver Details</h3>
+            <div class="kv"><div class="kv-label">Name</div><div class="kv-value">${escapeHtml(consigneeName)}</div></div>
+            <div class="kv">
+              <div class="kv-label">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92V21a1 1 0 0 1-1.09 1 19.86 19.86 0 0 1-8.63-3.07A19.5 19.5 0 0 1 3.07 11.72 19.86 19.86 0 0 1 0 3.09 1 1 0 0 1 1 2h4.09a1 1 0 0 1 1 .75l1 4a1 1 0 0 1-.29.95L5.21 9.29a16 16 0 0 0 9.5 9.5l1.59-1.59a1 1 0 0 1 .95-.29l4 1a1 1 0 0 1 .75 1z"/></svg>
+                Phone
+              </div>
+              <div class="kv-value">${escapeHtml(consigneePhone)}</div>
+            </div>
+            <div class="kv">
+              <div class="kv-label">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-12a7 7 0 1 1 14 0c0 5.5-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>
+                Address
+              </div>
+              <div class="kv-value">${escapeHtml(consigneeAddress)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 14px;" class="card">
+          <h3 class="section-title">Package Details</h3>
+          <div class="package-grid">
+            <div class="info-item">
+              <div class="info-label">Item Type</div>
+              <div class="info-value">${escapeHtml(formData.itemDetail || '-')}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Quantity</div>
+              <div class="info-value">${escapeHtml(formData.pieces || '-')}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Special Instructions</div>
+              <div class="info-value">${escapeHtml(formData.specialInstruction || '-')}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 14px;" class="payment">
+          <div>Payment Mode: ${escapeHtml(paymentMode)}</div>
+          <div>Collection Amount: ${escapeHtml(collectionAmount)}</div>
+        </div>
+
+        <div class="footer-note urdu">
+          نوٹ: براہ کرم پارسل وصول کرنے سے پہلے پیکج کی حالت چیک کریں۔ پارسل وصول کرنے کے بعد کمپنی ذمہ دار نہیں ہوگی۔
+          <br />
+          اہم: اگر پارسل/آرڈر منسوخ ہو تو فوراً کمپنی کو مطلع کریں۔
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`;
+  };
+
+  const handlePrintSummary = async () => {
+    const payload = labelPayload || buildLabelPayload();
+    let qrImage = qrDataUrl;
+    if (!qrImage) {
+      try {
+        qrImage = await QRCode.toDataURL(payload, {
+          margin: 2,
+          width: 340,
+          errorCorrectionLevel: 'H'
+        });
+      } catch {
+        qrImage = '';
+      }
+    }
+    const html = buildSummaryHtml(qrImage);
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) {
+      window.print();
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
+  const handleDownloadSummary = async () => {
+    const payload = labelPayload || buildLabelPayload();
+    let qrImage = qrDataUrl;
+    if (!qrImage) {
+      try {
+        qrImage = await QRCode.toDataURL(payload, {
+          margin: 2,
+          width: 340,
+          errorCorrectionLevel: 'H'
+        });
+      } catch {
+        qrImage = '';
+      }
+    }
+    const html = buildSummaryHtml(qrImage);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `order-summary-${trackingId || 'draft'}.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const whatsappLink = buildWhatsappLink(deliveryCode);
   return (
     <main className="w-full pt-20 min-h-screen bg-slate-50">
       <section className="py-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid lg:grid-cols-12 gap-8">
+        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-10">
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
             {/* Left Form Column */}
-            <div className="lg:col-span-8 space-y-6">
+            <div className="space-y-6">
               {/* Sender Details */}
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
                 <h2 className="text-lg font-bold text-slate-800 mb-4">
@@ -556,6 +1010,84 @@ export function BookParcel() {
                       onChange={handleChange}
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
                       placeholder="House & Street, Area"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Shipment Details */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                <h2 className="text-lg font-bold text-slate-800 mb-4">
+                  Shipment Details
+                </h2>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Item Detail *
+                    </label>
+                    <textarea
+                      name="itemDetail"
+                      value={formData.itemDetail}
+                      onChange={handleChange}
+                      rows={3}
+                      required
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      placeholder="e.g. 2 shirts, 1 jeans"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Special Instruction
+                    </label>
+                    <textarea
+                      name="specialInstruction"
+                      value={formData.specialInstruction}
+                      onChange={handleChange}
+                      rows={2}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      placeholder="Leave at reception, call before delivery"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Reference No.
+                    </label>
+                    <input
+                      type="text"
+                      name="referenceNo"
+                      value={formData.referenceNo}
+                      onChange={handleChange}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      placeholder="Reference"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Order ID.
+                    </label>
+                    <input
+                      type="text"
+                      name="orderId"
+                      value={formData.orderId}
+                      onChange={handleChange}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      placeholder="Order ID"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      No. of Pieces *
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      name="pieces"
+                      value={formData.pieces}
+                      onChange={handleChange}
+                      required
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      placeholder="1"
                     />
                   </div>
                 </div>
@@ -739,97 +1271,29 @@ export function BookParcel() {
             </div>
 
             {/* Right Summary Column */}
-            <div className="lg:col-span-4">
-              <div className="sticky top-24">
-                <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-xl">
-                  <h3 className="text-lg font-bold mb-4">Order Summary</h3>
-                <div className="space-y-3 text-sm text-slate-300">
-                  <div className="flex items-center justify-between">
-                    <span>Sender Name</span>
-                    <span className="text-white">
-                      {formData.senderName || '-'}
-                    </span>
+            <div className="lg:justify-self-end">
+              <div className="sticky top-24 lg:w-[420px]">
+                <div className="bg-slate-900 text-white rounded-3xl p-8 shadow-2xl">
+                  <div className="flex items-start justify-between gap-3 mb-5">
+                    <h3 className="text-xl font-bold">Order Summary</h3>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span>Sender Phone</span>
-                    <span className="text-white">
-                      {formData.senderPhone || '-'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Pickup City</span>
-                    <span className="text-white">
-                      {formData.senderCity || '-'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Pickup Address</span>
-                    <span className="text-white">
-                      {formData.senderAddress || '-'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Receiver Name</span>
-                    <span className="text-white">
-                      {formData.receiverName || '-'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Receiver Phone</span>
-                    <span className="text-white">
-                      {formData.receiverPhone || '-'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>WhatsApp</span>
-                    <span className="text-white">
-                      {formData.receiverWhatsapp || '-'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Destination City</span>
-                    <span className="text-white">{formData.receiverCity}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Delivery Address</span>
-                    <span className="text-white">
-                      {formData.receiverAddress || '-'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Service</span>
-                    <span className="text-white">{selectedService.title}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Weight</span>
-                    <span className="text-white">{weightLabel}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Base</span>
-                    <span className="text-white">{baseLabel}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Additional Charges</span>
-                    <span className="text-white">{extraLabel}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Out of City</span>
-                    <span className="text-white">{outOfCityLabel}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>COD Amount</span>
-                    <span className="text-orange-300 font-semibold">
-                      {codLabel}
-                    </span>
-                  </div>
+                <div className="space-y-4 text-sm text-slate-300">
+                  {summaryRows.map((row) => (
+                    <div key={row.label} className="flex items-center justify-between gap-3">
+                      <span>{row.label}</span>
+                      <span className={`text-white ${row.label === 'COD Amount' ? 'text-orange-300 font-semibold' : ''}`}>
+                        {row.value}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-                <div className="border-t border-white/10 my-4" />
+                <div className="border-t border-white/10 my-5" />
                 <div className="flex items-center justify-between text-lg font-bold">
                   <span>Total</span>
                   <span className="text-orange-400">{totalLabel}</span>
                 </div>
                 {walletBalance !== null && (
-                  <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
+                  <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
                     <div className="flex items-center justify-between">
                       <span>Wallet Balance</span>
                       <span className="text-white font-semibold">
@@ -859,6 +1323,20 @@ export function BookParcel() {
                     }`}>
                     Confirm Booking
                   </button>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadSummary}
+                      className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-emerald-500 text-white hover:bg-emerald-600 transition">
+                      Download
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePrintSummary}
+                      className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-white text-slate-900 hover:bg-slate-100 transition">
+                      Print
+                    </button>
+                  </div>
                   <p className="mt-3 text-xs text-slate-400">
                     Final price varies by weight and out-of-city delivery.
                   </p>

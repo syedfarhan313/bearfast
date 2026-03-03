@@ -19,7 +19,6 @@ import {
   Moon,
   Package,
   PackageCheck,
-  Plus,
   PlusCircle,
   Search,
   Settings,
@@ -384,6 +383,15 @@ export function CodRegistration() {
         setAuthChecking(false);
         return;
       }
+      if (user.isAnonymous) {
+        setLoginAccount(null);
+        setViewMode('register');
+        setFundRequests([]);
+        setBookingSnapshot([]);
+        setAccountNotFound(false);
+        setAuthChecking(false);
+        return;
+      }
       setAuthChecking(true);
       setAccountNotFound(false);
       setViewMode('account');
@@ -397,7 +405,7 @@ export function CodRegistration() {
           }
         } else {
           setLoginAccount(null);
-          setAccountNotFound(false);
+          setAccountNotFound(true);
           setViewMode('register');
         }
         setAuthChecking(false);
@@ -1088,8 +1096,7 @@ export function CodRegistration() {
             : 'bg-[#F8FAFC]'
           : 'bg-gradient-to-b from-slate-50 via-white to-slate-100/70'
       }`}>
-      {viewMode === 'account' ? (
-        loginAccount ? (
+      {viewMode === 'account' && loginAccount ? (
         <div className="min-h-screen" style={{ fontFamily: "'Poppins', 'Inter', system-ui, sans-serif" }}>
           <aside
             className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-64 bg-[#0F172A] text-white flex-col">
@@ -1102,25 +1109,41 @@ export function CodRegistration() {
               </button>
             </div>
             <nav className="px-4 space-y-2 flex-1">
-              {DASHBOARD_NAV.map((item) => {
+              {DASHBOARD_NAV.map((item, index) => {
                 const isActive = activeSection === item.key;
                 return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => {
-                      setActiveSection(item.key);
-                      setSidebarOpen(false);
-                    }}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-lg font-semibold transition ${
-                      isActive
-                        ? 'bg-white/10 text-white'
-                        : 'text-white/70 hover:text-white hover:bg-white/5'
-                    }`}>
-                    <item.icon className="h-4 w-4" />
-                    {item.label}
-                  </button>
+                  <React.Fragment key={item.key}>
+                    {index === 1 && (
+                      canBookParcels ? (
+                        <Link
+                          to="/book"
+                          className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-lg font-semibold transition text-orange-200 hover:text-white hover:bg-white/5">
+                          <PlusCircle className="h-4 w-4" />
+                          Book a Parcel
+                        </Link>
+                      ) : (
+                        <div className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-lg font-semibold text-white/40 cursor-not-allowed">
+                          <Lock className="h-4 w-4" />
+                          Booking locked
+                        </div>
+                      )
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveSection(item.key);
+                        setSidebarOpen(false);
+                      }}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-lg font-semibold transition ${
+                        isActive
+                          ? 'bg-white/10 text-white'
+                          : 'text-white/70 hover:text-white hover:bg-white/5'
+                      }`}>
+                      <item.icon className="h-4 w-4" />
+                      {item.label}
+                    </button>
+                  </React.Fragment>
                 );
               })}
             </nav>
@@ -1253,17 +1276,6 @@ export function CodRegistration() {
                       </div>
                     )}
                   </div>
-                  {canBookParcels ? (
-                    <Link
-                      to="/book"
-                      className="btn-ripple col-span-2 sm:col-span-1 w-full sm:w-auto text-center px-5 py-2.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold shadow-lg shadow-orange-200 hover:-translate-y-0.5 transition">
-                      Book a Parcel
-                    </Link>
-                  ) : (
-                    <span className="col-span-2 sm:col-span-1 w-full sm:w-auto text-center px-5 py-2.5 rounded-full bg-slate-100 text-slate-500 text-sm font-semibold">
-                      Booking locked until approval
-                    </span>
-                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -1278,23 +1290,39 @@ export function CodRegistration() {
 
             <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-800/70 bg-[#0F172A]">
               <div className="max-w-[600px] mx-auto px-3 pt-2 pb-3">
-                <div className="grid grid-cols-5 gap-2">
-                  {DASHBOARD_NAV.map((item) => {
+                <div className="grid grid-cols-6 gap-2">
+                  {DASHBOARD_NAV.map((item, index) => {
                     const isActive = activeSection === item.key;
                     return (
-                      <button
-                        key={item.key}
-                        type="button"
-                        onClick={() => setActiveSection(item.key)}
-                        aria-current={isActive ? 'page' : undefined}
-                        className={`flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold transition ${
-                          isActive
-                            ? 'bg-white/10 text-white ring-1 ring-white/15'
-                            : 'text-white/70 hover:bg-white/5 hover:text-white'
-                        }`}>
-                        <item.icon className="h-5 w-5" />
-                        <span className="leading-none">{item.label}</span>
-                      </button>
+                      <React.Fragment key={item.key}>
+                        {index === 1 && (
+                          canBookParcels ? (
+                            <Link
+                              to="/book"
+                              className="flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold transition text-orange-200 hover:bg-white/5 hover:text-white">
+                              <PlusCircle className="h-5 w-5" />
+                              <span className="leading-none">Book a Parcel</span>
+                            </Link>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold text-white/40 cursor-not-allowed">
+                              <Lock className="h-5 w-5" />
+                              <span className="leading-none">Booking locked</span>
+                            </div>
+                          )
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setActiveSection(item.key)}
+                          aria-current={isActive ? 'page' : undefined}
+                          className={`flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold transition ${
+                            isActive
+                              ? 'bg-white/10 text-white ring-1 ring-white/15'
+                              : 'text-white/70 hover:bg-white/5 hover:text-white'
+                          }`}>
+                          <item.icon className="h-5 w-5" />
+                          <span className="leading-none">{item.label}</span>
+                        </button>
+                      </React.Fragment>
                     );
                   })}
                 </div>
@@ -1332,11 +1360,9 @@ export function CodRegistration() {
                         </p>
                       </div>
                       {canBookParcels ? (
-                        <Link
-                          to="/book"
-                          className="btn-ripple w-full sm:w-auto text-center px-5 py-2.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold shadow-lg shadow-orange-200 hover:-translate-y-0.5 transition">
-                          Book a Parcel
-                        </Link>
+                        <div className="w-full sm:w-auto text-sm text-slate-500">
+                          Use the menu to book a parcel.
+                        </div>
                       ) : (
                         <div className="w-full sm:w-auto text-center px-5 py-2.5 rounded-full bg-amber-100 text-amber-700 text-sm font-semibold">
                           Booking locked until approval
@@ -2302,49 +2328,7 @@ export function CodRegistration() {
             </main>
           </div>
 
-          {canBookParcels && (
-            <Link
-              to="/book"
-              className="btn-ripple fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 px-5 py-3 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold shadow-xl shadow-orange-300/40 hover:shadow-orange-400 transition">
-              <Plus className="h-4 w-4" />
-              Quick Book Parcel
-            </Link>
-          )}
         </div>
-        ) : (
-          <div className="min-h-screen flex items-center justify-center px-4">
-            <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-                Account
-              </p>
-              <h2 className="text-2xl font-black text-slate-900 mt-2">
-                {accountNotFound ? 'Account Not Found' : 'Loading Dashboard'}
-              </h2>
-              <p className="text-sm text-slate-600 mt-3">
-                {accountNotFound
-                  ? 'We could not find your COD account data for this email. Please register again or contact support.'
-                  : 'We are syncing your dashboard data. Please wait a moment.'}
-              </p>
-              <div className="mt-6 flex flex-col sm:flex-row gap-3 sm:justify-center">
-                <button
-                  type="button"
-                  onClick={() => window.location.reload()}
-                  className="px-5 py-3 rounded-full border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50">
-                  Try Again
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    signOut(auth).catch(() => undefined);
-                    navigate('/cod-registration');
-                  }}
-                  className="px-5 py-3 rounded-full bg-slate-900 text-white font-semibold hover:bg-slate-800">
-                  Sign Out
-                </button>
-              </div>
-            </div>
-          </div>
-        )
       ) : (
         <>
           {!registerOnly && (
@@ -3067,6 +3051,51 @@ export function CodRegistration() {
           </section>
           )}
         </>
+      )}
+      {accountNotFound && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm px-4">
+          <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-7 shadow-2xl">
+            <div className="text-center">
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
+                Account
+              </p>
+              <h3 className="text-2xl font-black text-slate-900 mt-2">
+                Account Not Found
+              </h3>
+              <p className="text-sm text-slate-600 mt-3">
+                We could not find your COD account for this email. Please
+                register first to continue.
+              </p>
+            </div>
+            <div className="mt-6 flex flex-col sm:flex-row gap-3 sm:justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setAccountNotFound(false);
+                  setRegisterOnly(false);
+                  setTimeout(() => {
+                    planRef.current?.scrollIntoView({
+                      behavior: 'smooth',
+                      block: 'start'
+                    });
+                  }, 0);
+                }}
+                className="px-5 py-3 rounded-full bg-orange-500 text-white font-semibold hover:bg-orange-600">
+                Register Now
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAccountNotFound(false);
+                  signOut(auth).catch(() => undefined);
+                  navigate('/cod-registration');
+                }}
+                className="px-5 py-3 rounded-full border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50">
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {showClearModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm px-4">

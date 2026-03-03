@@ -51,6 +51,11 @@ export interface Booking {
   receiverWhatsapp: string;
   receiverCity: string;
   receiverAddress: string;
+  itemDetail?: string;
+  specialInstruction?: string;
+  referenceNo?: string;
+  orderId?: string;
+  pieces?: number;
   weightKg: number;
   serviceType: string;
   serviceTitle: string;

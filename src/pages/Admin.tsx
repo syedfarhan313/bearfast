@@ -1,5 +1,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import QRCode from 'qrcode';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import {
@@ -41,6 +42,7 @@ import {
   CheckCircle2,
   Clipboard,
   Clock,
+  FileText,
   Edit3,
   LayoutGrid,
   Lock,
@@ -66,7 +68,7 @@ export function Admin() {
   const [rejectionTarget, setRejectionTarget] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [rejectionError, setRejectionError] = useState('');
-  const [activePanel, setActivePanel] = useState<'bookings' | 'cod'>('cod');
+  const [activePanel, setActivePanel] = useState<'bookings' | 'cod' | 'slips'>('cod');
   const [codAccounts, setCodAccounts] = useState<CodAccountRequest[]>([]);
   const [codStatusFilter, setCodStatusFilter] = useState<string>('all');
   const [codCityFilter, setCodCityFilter] = useState<string>('all');
@@ -78,6 +80,8 @@ export function Admin() {
   const [parcelQuery, setParcelQuery] = useState('');
   const [parcelFrom, setParcelFrom] = useState('');
   const [parcelTo, setParcelTo] = useState('');
+  const [slipTab, setSlipTab] = useState<'cod' | 'non-cod'>('cod');
+  const [slipQuery, setSlipQuery] = useState('');
   const [fundRequests, setFundRequests] = useState<FundRequest[]>([]);
   const [manualTransactions, setManualTransactions] = useState<
     Record<
@@ -107,6 +111,7 @@ export function Admin() {
       detail: string;
       accountId?: string;
       trackingId?: string;
+      requestId?: string;
     }[]
   >([]);
   const [highlightedAccounts, setHighlightedAccounts] = useState<
@@ -116,6 +121,7 @@ export function Admin() {
   const fundIdsRef = useRef<Set<string>>(new Set());
   const bookingsInitializedRef = useRef(false);
   const fundsInitializedRef = useRef(false);
+  const dismissedNotificationsRef = useRef<Set<string>>(new Set());
   const [authReady, setAuthReady] = useState(false);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
@@ -161,9 +167,53 @@ export function Admin() {
     if (Number.isNaN(parsed.getTime())) return '-';
     return `${formatDate(value)} ${formatTime(value)}`;
   };
+  const getNotificationKey = (
+    notice: Partial<typeof liveNotifications[number]>
+  ) => {
+    if (notice.type === 'booking' && notice.trackingId) {
+      return `booking:${notice.trackingId}`;
+    }
+    if (notice.type === 'fund' && notice.requestId) {
+      return `fund:${notice.requestId}`;
+    }
+    return '';
+  };
+  const persistDismissedNotifications = (items: Set<string>) => {
+    try {
+      localStorage.setItem(
+        'bearfast_admin_dismissed_notifications',
+        JSON.stringify([...items])
+      );
+    } catch {
+      // ignore storage errors
+    }
+  };
+  const markNotificationDismissed = (
+    notice: Partial<typeof liveNotifications[number]>
+  ) => {
+    const key = getNotificationKey(notice);
+    if (!key) return;
+    const next = dismissedNotificationsRef.current;
+    if (next.has(key)) return;
+    next.add(key);
+    persistDismissedNotifications(next);
+  };
+  const dismissNotification = (notice: typeof liveNotifications[number]) => {
+    markNotificationDismissed(notice);
+    setLiveNotifications((prev) => prev.filter((item) => item.id !== notice.id));
+  };
   const addNotification = (next: Omit<typeof liveNotifications[number], 'id'>) => {
+    const key = getNotificationKey(next);
+    if (key && dismissedNotificationsRef.current.has(key)) {
+      return;
+    }
     const entry = { ...next, id: `${Date.now()}-${Math.random()}` };
-    setLiveNotifications((prev) => [entry, ...prev].slice(0, 6));
+    setLiveNotifications((prev) => {
+      if (key && prev.some((item) => getNotificationKey(item) === key)) {
+        return prev;
+      }
+      return [entry, ...prev].slice(0, 6);
+    });
   };
   const flashAccount = (accountId?: string | null) => {
     if (!accountId) return;
@@ -228,8 +278,398 @@ export function Admin() {
     '3-7-day': { baseHalf: 220, baseOne: 360, additionalPerKg: 200 },
     'next-day': { baseHalf: 150, baseOne: 260, additionalPerKg: 150 }
   };
+  const buildBarcodeSvg = (value: string) => {
+    const cleanValue = value.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase();
+    const bars: string[] = [];
+    let x = 0;
+    const height = 54;
+    const gap = 1;
+    const bar = (w: number) => {
+      bars.push(
+        `<rect x="${x}" y="0" width="${w}" height="${height}" fill="#0f172a" />`
+      );
+      x += w + gap;
+    };
+    const space = (w: number) => {
+      x += w + gap;
+    };
+    bar(3);
+    cleanValue.split('').forEach((char) => {
+      const bits = char.charCodeAt(0).toString(2).padStart(7, '0');
+      bits.split('').forEach((bit) => {
+        if (bit === '1') {
+          bar(2);
+        } else {
+          space(2);
+        }
+      });
+      space(2);
+    });
+    bar(3);
+    const width = Math.max(180, x);
+    return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${bars.join(
+      ''
+    )}</svg>`;
+  };
+
+  const buildBookingLabelPayload = (booking: Booking) => {
+    const payloadObject = {
+      trackingId: booking.trackingId,
+      deliveryCode: booking.deliveryCode,
+      service: booking.serviceTitle,
+      weightKg: booking.weightKg,
+      codAmount: booking.codAmount || '0',
+      outOfCity: booking.outOfCity,
+      itemDetail: booking.itemDetail || '-',
+      specialInstruction: booking.specialInstruction || '-',
+      referenceNo: booking.referenceNo || '-',
+      orderId: booking.orderId || '-',
+      pieces: booking.pieces ?? 1,
+      bookedAt: booking.createdAt,
+      sender: {
+        name: booking.senderName || '-',
+        phone: booking.senderPhone || '-',
+        city: booking.senderCity || '-',
+        address: booking.senderAddress || '-'
+      },
+      receiver: {
+        name: booking.receiverName || '-',
+        phone: booking.receiverPhone || '-',
+        whatsapp: booking.receiverWhatsapp || '-',
+        city: booking.receiverCity || '-',
+        address: booking.receiverAddress || '-'
+      }
+    };
+    const encodedPayload = encodeURIComponent(JSON.stringify(payloadObject));
+    const envBase =
+      (import.meta.env.VITE_PUBLIC_BASE_URL as string | undefined) || '';
+    const baseUrl = envBase.trim()
+      ? envBase.trim().replace(/\/+$/, '')
+      : window.location.origin;
+    return `${baseUrl}/label?data=${encodedPayload}`;
+  };
+
+  const buildSlipHtml = (booking: Booking, qrImage?: string) => {
+    const baseUrl = window.location.origin;
+    const logoUrl = `${baseUrl}/WhatsApp%20Image%202026-02-20%20at%203.09.46%20PM.jpeg`;
+    const datetimeValue = new Date(booking.createdAt).toLocaleString('en-PK', {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+    const shipperName =
+      booking.merchantName || booking.senderName || 'Bear Fast Couriers';
+    const shipperPhone = booking.senderPhone || '-';
+    const shipperAddress = booking.senderAddress || 'BEAR FAST COURIERS';
+    const consigneeName = booking.receiverName || '-';
+    const consigneePhone = booking.receiverPhone || '-';
+    const consigneeAddress = booking.receiverAddress || '-';
+    const paymentMode =
+      Number(booking.codAmount || 0) > 0 || isCodBooking(booking) ? 'COD' : 'Cash';
+    const collectionAmount = booking.codAmount
+      ? `Rs. ${booking.codAmount}`
+      : 'Rs. 0';
+    const qrHtml = qrImage
+      ? `<img src="${qrImage}" alt="Shipment QR" />`
+      : `<div class="qr-placeholder">QR</div>`;
+    const barcodeSvg = buildBarcodeSvg(booking.trackingId);
+    const escapeHtml = (value: string) =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Booking Slip</title>
+    <style>
+      * { box-sizing: border-box; }
+      :root {
+        --navy: #0b1526;
+        --teal: #0ea5a4;
+        --sky: #e0f2fe;
+        --card: #f8fafc;
+        --line: #e2e8f0;
+      }
+      body { margin: 0; font-family: "Garamond", "EB Garamond", "Times New Roman", serif; background: radial-gradient(circle at top, #f8fafc 0%, #e2e8f0 45%, #e0f2fe 100%); color: var(--navy); }
+      @page { size: A4; margin: 12mm; }
+      .page { padding: 20px; }
+      .label {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 22px;
+        max-width: 1040px;
+        margin: 0 auto;
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.15), 0 2px 6px rgba(15, 23, 42, 0.08);
+      }
+      .glass {
+        background: rgba(248, 250, 252, 0.72);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(148, 163, 184, 0.28);
+        border-radius: 16px;
+        box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+      }
+      .header-row { display: grid; grid-template-columns: 1.2fr 1.6fr 0.7fr; gap: 16px; align-items: center; }
+      .logo { display: flex; align-items: center; gap: 14px; }
+      .logo img { height: 112px; width: auto; object-fit: contain; image-rendering: -webkit-optimize-contrast; filter: drop-shadow(0 6px 14px rgba(15,23,42,0.18)); }
+      .brand { font-size: 13px; color: #334155; font-weight: 600; letter-spacing: 0.02em; }
+      .brand-title { font-size: 20px; font-weight: 700; color: var(--navy); }
+      .barcode-wrap { padding: 12px 14px; }
+      .barcode-text { text-align: center; font-size: 13px; font-weight: 700; letter-spacing: 0.12em; margin-top: 6px; color: var(--navy); }
+      .qr { display: flex; align-items: center; justify-content: center; padding: 10px; border-radius: 16px; }
+      .qr img { width: 140px; height: 140px; }
+      .qr-placeholder {
+        width: 140px; height: 140px; border: 2px dashed #94a3b8; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #94a3b8;
+      }
+      .section-title {
+        font-size: 16px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: var(--navy);
+        font-weight: 700;
+        margin-bottom: 10px;
+      }
+      h3.section-title { margin: 0 0 10px; }
+      .card {
+        padding: 16px 18px;
+        border-radius: 18px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
+      }
+      .info-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+      .info-item { padding: 8px 10px; border-radius: 12px; background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%); border: 1px solid var(--line); box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); }
+      .span-2 { grid-column: span 2; }
+      .info-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.12em; }
+      .info-value { font-size: 13px; font-weight: 600; margin-top: 4px; color: var(--navy); }
+      .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .kv { display: grid; grid-template-columns: 120px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px solid #e2e8f0; }
+      .kv:last-child { border-bottom: none; }
+      .kv-label { font-size: 12px; color: #64748b; font-weight: 600; }
+      .kv-value { font-size: 12.5px; color: var(--navy); font-weight: 600; }
+      .icon { width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; }
+      .package-grid { display: grid; grid-template-columns: 1.2fr 0.6fr 1.2fr; gap: 10px; }
+      .payment {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: linear-gradient(90deg, #e0f2fe 0%, #dbeafe 100%);
+        border: 1px solid #7dd3fc;
+        border-radius: 14px;
+        font-weight: 700;
+        color: var(--navy);
+        box-shadow: 0 10px 22px rgba(14, 165, 233, 0.18);
+      }
+      .footer-note {
+        margin-top: 12px;
+        padding: 12px 14px;
+        background: #f1f5f9;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        font-size: 12px;
+        color: #475569;
+        line-height: 1.6;
+      }
+      .urdu { font-family: "Jameel Noori Nastaleeq", "Noto Nastaliq Urdu", "Noto Naskh Arabic", serif; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="label">
+        <div class="header-row">
+          <div class="logo">
+            <img src="${logoUrl}" alt="Bear Fast" />
+            <div>
+              <div class="brand-title">Bear Fast Couriers</div>
+              <div class="brand">Printed By: ${escapeHtml(
+                booking.merchantName || booking.senderName || 'Bear Fast'
+              )}</div>
+            </div>
+          </div>
+          <div class="barcode-wrap glass">
+            ${barcodeSvg}
+            <div class="barcode-text">${escapeHtml(booking.trackingId)}</div>
+          </div>
+          <div class="qr glass">
+            ${qrHtml}
+          </div>
+        </div>
+
+        <div style="margin-top: 14px;" class="card">
+          <h3 class="section-title">Shipment Details</h3>
+          <div class="info-grid">
+            <div class="info-item span-2">
+              <div class="info-label">Service</div>
+              <div class="info-value">${escapeHtml(booking.serviceTitle)}</div>
+            </div>
+            <div class="info-item span-2">
+              <div class="info-label">Shipment Mode</div>
+              <div class="info-value">Parcel</div>
+            </div>
+            <div class="info-item span-2">
+              <div class="info-label">Date / Time</div>
+              <div class="info-value">${escapeHtml(datetimeValue)}</div>
+            </div>
+            <div class="info-item span-2">
+              <div class="info-label">Order ID</div>
+              <div class="info-value">${escapeHtml(
+                booking.orderId || booking.trackingId
+              )}</div>
+            </div>
+            <div class="info-item span-2">
+              <div class="info-label">Origin</div>
+              <div class="info-value">${escapeHtml(booking.senderCity || '-')}</div>
+            </div>
+            <div class="info-item span-2">
+              <div class="info-label">Destination</div>
+              <div class="info-value">${escapeHtml(booking.receiverCity || '-')}</div>
+            </div>
+            <div class="info-item span-2">
+              <div class="info-label">Business Category</div>
+              <div class="info-value">Domestic</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 14px;" class="split">
+          <div class="card">
+            <h3 class="section-title">Sender Details</h3>
+            <div class="kv"><div class="kv-label">Name</div><div class="kv-value">${escapeHtml(shipperName)}</div></div>
+            <div class="kv">
+              <div class="kv-label">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92V21a1 1 0 0 1-1.09 1 19.86 19.86 0 0 1-8.63-3.07A19.5 19.5 0 0 1 3.07 11.72 19.86 19.86 0 0 1 0 3.09 1 1 0 0 1 1 2h4.09a1 1 0 0 1 1 .75l1 4a1 1 0 0 1-.29.95L5.21 9.29a16 16 0 0 0 9.5 9.5l1.59-1.59a1 1 0 0 1 .95-.29l4 1a1 1 0 0 1 .75 1z"/></svg>
+                Phone
+              </div>
+              <div class="kv-value">${escapeHtml(shipperPhone)}</div>
+            </div>
+            <div class="kv">
+              <div class="kv-label">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-12a7 7 0 1 1 14 0c0 5.5-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>
+                Address
+              </div>
+              <div class="kv-value">${escapeHtml(shipperAddress)}</div>
+            </div>
+          </div>
+          <div class="card">
+            <h3 class="section-title">Receiver Details</h3>
+            <div class="kv"><div class="kv-label">Name</div><div class="kv-value">${escapeHtml(consigneeName)}</div></div>
+            <div class="kv">
+              <div class="kv-label">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92V21a1 1 0 0 1-1.09 1 19.86 19.86 0 0 1-8.63-3.07A19.5 19.5 0 0 1 3.07 11.72 19.86 19.86 0 0 1 0 3.09 1 1 0 0 1 1 2h4.09a1 1 0 0 1 1 .75l1 4a1 1 0 0 1-.29.95L5.21 9.29a16 16 0 0 0 9.5 9.5l1.59-1.59a1 1 0 0 1 .95-.29l4 1a1 1 0 0 1 .75 1z"/></svg>
+                Phone
+              </div>
+              <div class="kv-value">${escapeHtml(consigneePhone)}</div>
+            </div>
+            <div class="kv">
+              <div class="kv-label">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-12a7 7 0 1 1 14 0c0 5.5-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>
+                Address
+              </div>
+              <div class="kv-value">${escapeHtml(consigneeAddress)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 14px;" class="card">
+          <h3 class="section-title">Package Details</h3>
+          <div class="package-grid">
+            <div class="info-item">
+              <div class="info-label">Item Type</div>
+              <div class="info-value">${escapeHtml(booking.itemDetail || '-')}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Quantity</div>
+              <div class="info-value">${escapeHtml(String(booking.pieces ?? 1))}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Special Instructions</div>
+              <div class="info-value">${escapeHtml(booking.specialInstruction || '-')}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 14px;" class="payment">
+          <div>Payment Mode: ${escapeHtml(paymentMode)}</div>
+          <div>Collection Amount: ${escapeHtml(collectionAmount)}</div>
+        </div>
+
+        <div class="footer-note urdu">
+          نوٹ: براہ کرم پارسل وصول کرنے سے پہلے پیکج کی حالت چیک کریں۔ پارسل وصول کرنے کے بعد کمپنی ذمہ دار نہیں ہوگی۔
+          <br />
+          اہم: اگر پارسل/آرڈر منسوخ ہو تو فوراً کمپنی کو مطلع کریں۔
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`;
+  };
+
+  const handlePrintSlip = async (booking: Booking) => {
+    let qrImage = '';
+    try {
+      const payload = buildBookingLabelPayload(booking);
+      qrImage = await QRCode.toDataURL(payload, {
+        margin: 2,
+        width: 340,
+        errorCorrectionLevel: 'H'
+      });
+    } catch {
+      qrImage = '';
+    }
+    const html = buildSlipHtml(booking, qrImage);
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) {
+      window.print();
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
+  const handleDownloadSlip = async (booking: Booking) => {
+    let qrImage = '';
+    try {
+      const payload = buildBookingLabelPayload(booking);
+      qrImage = await QRCode.toDataURL(payload, {
+        margin: 2,
+        width: 340,
+        errorCorrectionLevel: 'H'
+      });
+    } catch {
+      qrImage = '';
+    }
+    const html = buildSlipHtml(booking, qrImage);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `booking-slip-${booking.trackingId}.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
   const isNonCodBooking = (booking: Booking) => !isCodBooking(booking);
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem('bearfast_admin_dismissed_notifications');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          dismissedNotificationsRef.current = new Set(
+            parsed.filter((item) => typeof item === 'string')
+          );
+        }
+      }
+    } catch {
+      // ignore storage errors
+    }
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setAuthUser(user);
       setAuthReady(true);
@@ -287,6 +727,9 @@ export function Admin() {
     if (params.get('tab') === 'bookings') {
       setActivePanel('bookings');
     }
+    if (params.get('tab') === 'slips') {
+      setActivePanel('slips');
+    }
   }, [location.search]);
 
   useEffect(() => {
@@ -342,6 +785,34 @@ export function Admin() {
       return matchStatus && matchQuery;
     });
   }, [bookings, statusFilter, query]);
+
+  const slipFiltered = useMemo(() => {
+    const base =
+      slipTab === 'cod'
+        ? bookings.filter((booking) => isCodBooking(booking))
+        : bookings.filter((booking) => isNonCodBooking(booking));
+    const search = slipQuery.trim().toLowerCase();
+    if (!search) return base;
+    return base.filter((booking) => {
+      const haystack = [
+        booking.trackingId,
+        booking.senderName,
+        booking.senderPhone,
+        booking.receiverName,
+        booking.receiverPhone,
+        booking.senderCity,
+        booking.receiverCity,
+        booking.merchantName,
+        booking.merchantEmail,
+        booking.orderId,
+        booking.referenceNo
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [bookings, slipQuery, slipTab]);
 
   const filteredCodAccounts = useMemo(() => {
     return codAccounts.filter((account) => {
@@ -682,7 +1153,8 @@ export function Admin() {
         detail: `${request.companyName || 'Merchant'} • Rs. ${formatAmount(
           request.amount
         )}`,
-        accountId: request.accountId
+        accountId: request.accountId,
+        requestId: request.id
       });
     });
   }, [fundRequests]);
@@ -985,6 +1457,16 @@ export function Admin() {
             <Truck className="h-4 w-4" />
             Non COD
           </button>
+          <button
+            onClick={() => setActivePanel('slips')}
+            className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition-colors ${
+              activePanel === 'slips'
+                ? 'bg-white/10 text-white'
+                : 'text-white hover:bg-white/5'
+            }`}>
+            <FileText className="h-4 w-4" />
+            Booking Slip
+          </button>
         </nav>
       </aside>
 
@@ -995,16 +1477,26 @@ export function Admin() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input
                 type="text"
-                value={activePanel === 'cod' ? codQuery : query}
+                value={
+                  activePanel === 'cod'
+                    ? codQuery
+                    : activePanel === 'slips'
+                      ? slipQuery
+                      : query
+                }
                 onChange={(e) =>
                   activePanel === 'cod'
                     ? setCodQuery(e.target.value)
-                    : setQuery(e.target.value)
+                    : activePanel === 'slips'
+                      ? setSlipQuery(e.target.value)
+                      : setQuery(e.target.value)
                 }
                 placeholder={
                   activePanel === 'cod'
                     ? 'Search merchants, email, phone...'
-                    : 'Search tracking ID...'
+                    : activePanel === 'slips'
+                      ? 'Search slips, tracking, sender, receiver...'
+                      : 'Search tracking ID...'
                 }
                 className="w-full rounded-2xl border border-slate-200 bg-white/80 px-10 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -1043,6 +1535,7 @@ export function Admin() {
                         onClick={() => {
                           setActivePanel('cod');
                           setSelectedAccountId(notice.accountId || null);
+                          dismissNotification(notice);
                         }}
                         className="px-3 py-1.5 rounded-full bg-white text-emerald-700 text-xs font-semibold border border-emerald-200 hover:bg-emerald-100">
                         Open Profile
@@ -1050,11 +1543,7 @@ export function Admin() {
                     )}
                     <button
                       type="button"
-                      onClick={() =>
-                        setLiveNotifications((prev) =>
-                          prev.filter((item) => item.id !== notice.id)
-                        )
-                      }
+                      onClick={() => dismissNotification(notice)}
                       className="text-xs text-emerald-700 hover:text-emerald-900">
                       Dismiss
                     </button>
@@ -1083,14 +1572,14 @@ export function Admin() {
                   <Trash2 className="w-4 h-4" />
                   Clear COD Accounts
                 </button>
-              ) : (
+              ) : activePanel === 'bookings' ? (
                 <button
                   onClick={handleClear}
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition-colors text-sm font-semibold shadow-lg shadow-slate-900/10">
                   <Trash2 className="w-4 h-4" />
                   Clear Bookings
                 </button>
-              )}
+              ) : null}
             <button
               onClick={handleLogout}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white hover:bg-red-700 transition-colors text-sm font-semibold shadow-lg shadow-red-600/25 border border-transparent focus:outline-none focus:ring-0 focus-visible:ring-0">
@@ -1110,7 +1599,7 @@ export function Admin() {
             </section>
           )}
 
-          <div className="lg:hidden inline-flex rounded-full border border-slate-200 bg-white/80 p-1 shadow-sm">
+          <div className="lg:hidden inline-flex flex-wrap gap-2 rounded-full border border-slate-200 bg-white/80 p-1 shadow-sm">
             <button
               onClick={() => setActivePanel('cod')}
               className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
@@ -1128,6 +1617,15 @@ export function Admin() {
                   : 'text-slate-600 hover:bg-slate-100'
               }`}>
               Non COD
+            </button>
+            <button
+              onClick={() => setActivePanel('slips')}
+              className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+                activePanel === 'slips'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}>
+              Booking Slip
             </button>
           </div>
           {activePanel === 'cod' ? (
@@ -1911,12 +2409,17 @@ export function Admin() {
                                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                                   Sender
                                 </p>
-                                <p className="text-sm font-semibold text-slate-900 mt-2">
-                                  {booking.senderName || '-'}
+                              <p className="text-sm font-semibold text-slate-900 mt-2">
+                                {booking.senderName || '-'}
+                              </p>
+                              {isCodBooking(booking) && (
+                                <p className="text-xs text-emerald-700 mt-1">
+                                  Shipper (COD): {booking.merchantName || booking.merchantEmail || booking.merchantId || '-'}
                                 </p>
-                                <p className="text-xs text-slate-500">
-                                  {booking.senderPhone || '-'}
-                                </p>
+                              )}
+                              <p className="text-xs text-slate-500">
+                                {booking.senderPhone || '-'}
+                              </p>
                                 <p className="text-xs text-slate-500">
                                   {booking.senderAddress || '-'}
                                 </p>
@@ -2597,7 +3100,7 @@ export function Admin() {
               </section>
             </>
             )
-          ) : (
+          ) : activePanel === 'bookings' ? (
             <>
               <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                 <div>
@@ -2752,6 +3255,11 @@ export function Admin() {
                           <p className="text-sm font-semibold text-slate-900 mt-2">
                             {booking.senderName || '-'}
                           </p>
+                          {isCodBooking(booking) && (
+                            <p className="text-xs text-emerald-700 mt-1">
+                              Shipper (COD): {booking.merchantName || booking.merchantEmail || booking.merchantId || '-'}
+                            </p>
+                          )}
                           <p className="text-xs text-slate-500">
                             {booking.senderPhone || '-'}
                           </p>
@@ -2846,6 +3354,183 @@ export function Admin() {
                             </p>
                           </div>
                         )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => handlePrintSlip(booking)}
+                        className="px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50">
+                        Print Slip
+                      </button>
+                      <button
+                        onClick={() => handleDownloadSlip(booking)}
+                        className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800">
+                        Download Slip
+                      </button>
+                    </div>
+                  </div>
+                  );
+                })}
+              </section>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">
+                    Booking Slip Center
+                  </p>
+                  <h2 className="text-3xl lg:text-4xl font-semibold text-slate-900 mt-2">
+                    Booking Slips
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-2">
+                    Print or download courier slips for COD and Non COD shipments.
+                  </p>
+                </div>
+                <div className="inline-flex rounded-full border border-slate-200 bg-white/80 p-1 shadow-sm">
+                  <button
+                    onClick={() => setSlipTab('cod')}
+                    className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+                      slipTab === 'cod'
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}>
+                    COD Slips ({bookings.filter((booking) => isCodBooking(booking)).length})
+                  </button>
+                  <button
+                    onClick={() => setSlipTab('non-cod')}
+                    className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+                      slipTab === 'non-cod'
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}>
+                    Non COD Slips ({bookings.filter((booking) => isNonCodBooking(booking)).length})
+                  </button>
+                </div>
+              </div>
+
+              <section className="rounded-2xl border border-slate-200 bg-white/70 backdrop-blur p-4 shadow-sm">
+                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      value={slipQuery}
+                      onChange={(e) => setSlipQuery(e.target.value)}
+                      placeholder="Search slips by tracking, sender, receiver..."
+                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {slipFiltered.length === 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 text-center text-slate-600">
+                  No slips yet. New bookings will appear here.
+                </div>
+              )}
+
+              <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                {slipFiltered.map((booking) => {
+                  const statusConfig =
+                    STATUS_OPTIONS.find((s) => s.key === booking.status) ??
+                    STATUS_OPTIONS[0];
+                  const isCod = isCodBooking(booking);
+                  return (
+                    <div
+                      key={booking.trackingId}
+                      className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm transition hover:shadow-xl hover:-translate-y-1 space-y-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Tracking ID
+                          </p>
+                          <p className="text-lg font-semibold text-slate-900 mt-2 break-words">
+                            {booking.trackingId}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {booking.senderCity} → {booking.receiverCity}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {isCod ? 'COD' : 'Non COD'} •{' '}
+                            {formatDate(booking.createdAt)} {formatTime(booking.createdAt)}
+                          </p>
+                        </div>
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-semibold tracking-wide ${statusConfig.badge}`}>
+                          {statusConfig.label}
+                        </span>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2 text-sm">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Sender
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900 mt-2">
+                            {booking.senderName || '-'}
+                          </p>
+                          {isCod && (
+                            <p className="text-xs text-emerald-700 mt-1">
+                              Shipper (COD): {booking.merchantName || booking.merchantEmail || booking.merchantId || '-'}
+                            </p>
+                          )}
+                          <p className="text-xs text-slate-500">
+                            {booking.senderPhone || '-'}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Receiver
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900 mt-2">
+                            {booking.receiverName || '-'}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {booking.receiverPhone || '-'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 text-sm">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Item Detail
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900 mt-2">
+                            {booking.itemDetail || '-'}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Pieces
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900 mt-2">
+                            {booking.pieces ?? 1}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => handlePrintSlip(booking)}
+                          className="px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50">
+                          Print Slip
+                        </button>
+                        <button
+                          onClick={() => handleDownloadSlip(booking)}
+                          className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800">
+                          Download Slip
+                        </button>
+                        {booking.merchantId && isCod && (
+                          <button
+                            onClick={() => {
+                              setActivePanel('cod');
+                              setSelectedAccountId(booking.merchantId || null);
+                            }}
+                            className="px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600">
+                            Open Merchant
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

@@ -16,6 +16,11 @@ type LabelData = {
   weightKg: number;
   codAmount: string;
   outOfCity: boolean;
+  itemDetail?: string;
+  specialInstruction?: string;
+  referenceNo?: string;
+  orderId?: string;
+  pieces?: number;
   bookedAt: string;
   sender: LabelParty;
   receiver: LabelParty;
@@ -120,6 +125,31 @@ export function ShipmentLabel() {
                 <span className="rounded-full border border-slate-200 bg-white px-3 py-1">
                   Out of City: {label.outOfCity ? 'Yes' : 'No'}
                 </span>
+              </div>
+              <div className="mt-5 text-[11px] uppercase tracking-wide text-slate-500">
+                Shipment Details
+              </div>
+              <div className="mt-2 space-y-1 text-sm text-slate-600 break-words">
+                <div>
+                  <span className="text-slate-500">Item Detail:</span>{' '}
+                  {label.itemDetail || '-'}
+                </div>
+                <div>
+                  <span className="text-slate-500">Special Instruction:</span>{' '}
+                  {label.specialInstruction || '-'}
+                </div>
+                <div>
+                  <span className="text-slate-500">Reference No.:</span>{' '}
+                  {label.referenceNo || '-'}
+                </div>
+                <div>
+                  <span className="text-slate-500">Order ID.:</span>{' '}
+                  {label.orderId || '-'}
+                </div>
+                <div>
+                  <span className="text-slate-500">No. of Pieces:</span>{' '}
+                  {label.pieces ?? '-'}
+                </div>
               </div>
             </div>
 
