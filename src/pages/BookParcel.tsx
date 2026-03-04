@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { addBooking, getBooking } from '../utils/bookingStore';
 import {
@@ -10,6 +11,7 @@ import { auth } from '../lib/firebase';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 
 export function BookParcel() {
+  const navigate = useNavigate();
   const [serviceType, setServiceType] = useState('overnight');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [trackingId, setTrackingId] = useState('');
@@ -183,14 +185,10 @@ export function BookParcel() {
   }, [isModalOpen, labelPayload]);
 
   useEffect(() => {
-    if (!isModalOpen || autoDownloadDone) return;
-    if (!qrDataUrl || !trackingId) return;
-    const timer = window.setTimeout(() => {
-      handleDownloadQr();
-      setAutoDownloadDone(true);
-    }, 200);
-    return () => window.clearTimeout(timer);
-  }, [isModalOpen, qrDataUrl, trackingId, autoDownloadDone]);
+    if (!isModalOpen) return;
+    if (autoDownloadDone) return;
+    return () => undefined;
+  }, [isModalOpen, autoDownloadDone]);
 
   const handleConfirmBooking = async () => {
     let currentUser = auth.currentUser;
@@ -297,6 +295,7 @@ export function BookParcel() {
       outOfCity: formData.outOfCity,
       createdAt: nowIso
     });
+    handleDownloadSummary({ payload, trackingId: newTrackingId }).catch(() => undefined);
     setTrackingId(newTrackingId);
     setDeliveryCode(newDeliveryCode);
     setQrDataUrl('');
@@ -557,10 +556,10 @@ export function BookParcel() {
     return `${baseUrl}/label?data=${encodedPayload}`;
   };
 
-  const buildSummaryHtml = (qrImage?: string) => {
+  const buildSummaryHtml = (qrImage?: string, trackingOverride?: string) => {
     const baseUrl = window.location.origin;
     const logoUrl = `${baseUrl}/WhatsApp%20Image%202026-02-20%20at%203.09.46%20PM.jpeg`;
-    const trackingValue = displayTrackingId;
+    const trackingValue = trackingOverride || displayTrackingId;
     const datetimeValue = new Date().toLocaleString('en-PK', {
       dateStyle: 'medium',
       timeStyle: 'short'
@@ -834,8 +833,11 @@ export function BookParcel() {
     printWindow.document.close();
   };
 
-  const handleDownloadSummary = async () => {
-    const payload = labelPayload || buildLabelPayload();
+  const handleDownloadSummary = async (options?: {
+    payload?: string;
+    trackingId?: string;
+  }) => {
+    const payload = options?.payload || labelPayload || buildLabelPayload();
     let qrImage = qrDataUrl;
     if (!qrImage) {
       try {
@@ -848,12 +850,13 @@ export function BookParcel() {
         qrImage = '';
       }
     }
-    const html = buildSummaryHtml(qrImage);
+    const downloadTrackingId = options?.trackingId || trackingId || 'draft';
+    const html = buildSummaryHtml(qrImage, options?.trackingId);
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `order-summary-${trackingId || 'draft'}.html`;
+    link.download = `order-summary-${downloadTrackingId}.html`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -865,6 +868,22 @@ export function BookParcel() {
     <main className="w-full pt-20 min-h-screen bg-slate-50">
       <section className="py-10">
         <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-10">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
+                Merchant Dashboard
+              </p>
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">
+                Book a Parcel
+              </h1>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/cod-registration')}
+              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              Back to Dashboard
+            </button>
+          </div>
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
             {/* Left Form Column */}
             <div className="space-y-6">
@@ -1313,6 +1332,10 @@ export function BookParcel() {
                       {bookingError}
                     </div>
                   )}
+                  <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300">
+                    Please download the parcel slip before confirming booking.
+                    A copy will also download automatically after you confirm.
+                  </div>
                   <button
                     onClick={handleConfirmBooking}
                     disabled={Boolean(sessionAccount && sessionAccount.status !== 'approved')}
@@ -1440,9 +1463,9 @@ export function BookParcel() {
                     Download QR
                   </button>
                 </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  Auto-download starts when the QR is ready.
-                </p>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Click download if you need the QR.
+                  </p>
                 <div className="mt-4 flex items-center justify-center">
                   {qrDataUrl ? (
                     <img

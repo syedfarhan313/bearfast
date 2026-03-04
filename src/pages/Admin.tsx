@@ -30,6 +30,10 @@ import {
   subscribeFundRequests,
   updateFundRequestStatus
 } from '../utils/fundRequestStore';
+import {
+  MerchantFeedback,
+  subscribeMerchantFeedback
+} from '../utils/merchantFeedbackStore';
 import { auth } from '../lib/firebase';
 import {
   AlertTriangle,
@@ -48,6 +52,7 @@ import {
   Lock,
   Mail,
   MapPin,
+  MessageSquare,
   Phone,
   Search,
   Trash2,
@@ -68,7 +73,9 @@ export function Admin() {
   const [rejectionTarget, setRejectionTarget] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [rejectionError, setRejectionError] = useState('');
-  const [activePanel, setActivePanel] = useState<'bookings' | 'cod' | 'slips'>('cod');
+  const [activePanel, setActivePanel] = useState<
+    'bookings' | 'cod' | 'slips' | 'complaints'
+  >('cod');
   const [codAccounts, setCodAccounts] = useState<CodAccountRequest[]>([]);
   const [codStatusFilter, setCodStatusFilter] = useState<string>('all');
   const [codCityFilter, setCodCityFilter] = useState<string>('all');
@@ -82,7 +89,9 @@ export function Admin() {
   const [parcelTo, setParcelTo] = useState('');
   const [slipTab, setSlipTab] = useState<'cod' | 'non-cod'>('cod');
   const [slipQuery, setSlipQuery] = useState('');
+  const [complaintsQuery, setComplaintsQuery] = useState('');
   const [fundRequests, setFundRequests] = useState<FundRequest[]>([]);
+  const [complaints, setComplaints] = useState<MerchantFeedback[]>([]);
   const [manualTransactions, setManualTransactions] = useState<
     Record<
       string,
@@ -102,6 +111,7 @@ export function Admin() {
   const [bookingsLoadError, setBookingsLoadError] = useState('');
   const [codAccountsLoadError, setCodAccountsLoadError] = useState('');
   const [fundRequestsLoadError, setFundRequestsLoadError] = useState('');
+  const [complaintsLoadError, setComplaintsLoadError] = useState('');
   const [actionError, setActionError] = useState('');
   const [liveNotifications, setLiveNotifications] = useState<
     {
@@ -157,6 +167,16 @@ export function Admin() {
         return `${base} bg-gradient-to-r from-rose-500 to-red-600`;
       default:
         return `${base} bg-gradient-to-r from-slate-500 to-slate-700`;
+    }
+  };
+  const complaintPriorityBadge = (priority: MerchantFeedback['priority']) => {
+    switch (priority) {
+      case 'high':
+        return 'bg-rose-50 text-rose-700 ring-1 ring-rose-200/70';
+      case 'low':
+        return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200/70';
+      default:
+        return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/70';
     }
   };
   const formatAmount = (value: number) =>
@@ -720,6 +740,20 @@ export function Admin() {
   }, [authReady, authUser?.uid]);
 
   useEffect(() => {
+    if (!authReady || !authUser) return;
+    const unsubscribe = subscribeMerchantFeedback((items) => {
+      setComplaints(items);
+      setComplaintsLoadError('');
+    }, (error) => {
+      console.error('[Admin] complaints subscribe failed', error);
+      setComplaintsLoadError(
+        'Unable to load complaints. Please check Firebase permissions.'
+      );
+    });
+    return () => unsubscribe();
+  }, [authReady, authUser?.uid]);
+
+  useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('tab') === 'cod') {
       setActivePanel('cod');
@@ -729,6 +763,9 @@ export function Admin() {
     }
     if (params.get('tab') === 'slips') {
       setActivePanel('slips');
+    }
+    if (params.get('tab') === 'complaints') {
+      setActivePanel('complaints');
     }
   }, [location.search]);
 
@@ -1094,6 +1131,29 @@ export function Admin() {
       return matchQuery && matchStatus && fromOk && toOk;
     });
   }, [selectedBookings, parcelQuery, parcelStatusFilter, parcelFrom, parcelTo]);
+
+  const filteredComplaints = useMemo(() => {
+    const needle = complaintsQuery.trim().toLowerCase();
+    if (!needle) return complaints;
+    return complaints.filter((entry) => {
+      return [
+        entry.subject,
+        entry.message,
+        entry.merchantName,
+        entry.email,
+        entry.phone,
+        entry.id
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle));
+    });
+  }, [complaints, complaintsQuery]);
+
+  const handleOpenMerchant = (accountId: string) => {
+    setSelectedAccountId(accountId);
+    setActivePanel('cod');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const pendingFundRequests = useMemo(
     () => fundRequests.filter((request) => request.status === 'pending'),
@@ -1467,6 +1527,16 @@ export function Admin() {
             <FileText className="h-4 w-4" />
             Booking Slip
           </button>
+          <button
+            onClick={() => setActivePanel('complaints')}
+            className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition-colors ${
+              activePanel === 'complaints'
+                ? 'bg-white/10 text-white'
+                : 'text-white hover:bg-white/5'
+            }`}>
+            <MessageSquare className="h-4 w-4" />
+            Complaints
+          </button>
         </nav>
       </aside>
 
@@ -1482,21 +1552,27 @@ export function Admin() {
                     ? codQuery
                     : activePanel === 'slips'
                       ? slipQuery
-                      : query
+                      : activePanel === 'complaints'
+                        ? complaintsQuery
+                        : query
                 }
                 onChange={(e) =>
                   activePanel === 'cod'
                     ? setCodQuery(e.target.value)
                     : activePanel === 'slips'
                       ? setSlipQuery(e.target.value)
-                      : setQuery(e.target.value)
+                      : activePanel === 'complaints'
+                        ? setComplaintsQuery(e.target.value)
+                        : setQuery(e.target.value)
                 }
                 placeholder={
                   activePanel === 'cod'
                     ? 'Search merchants, email, phone...'
                     : activePanel === 'slips'
                       ? 'Search slips, tracking, sender, receiver...'
-                      : 'Search tracking ID...'
+                      : activePanel === 'complaints'
+                        ? 'Search complaints, merchant, email...'
+                        : 'Search tracking ID...'
                 }
                 className="w-full rounded-2xl border border-slate-200 bg-white/80 px-10 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -1510,11 +1586,16 @@ export function Admin() {
         </header>
 
         <main className="px-4 sm:px-6 lg:px-10 py-8 space-y-8">
-          {(bookingsLoadError || codAccountsLoadError || fundRequestsLoadError || actionError) && (
+          {(bookingsLoadError ||
+            codAccountsLoadError ||
+            fundRequestsLoadError ||
+            complaintsLoadError ||
+            actionError) && (
             <section className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm">
               {bookingsLoadError && <div>{bookingsLoadError}</div>}
               {codAccountsLoadError && <div>{codAccountsLoadError}</div>}
               {fundRequestsLoadError && <div>{fundRequestsLoadError}</div>}
+              {complaintsLoadError && <div>{complaintsLoadError}</div>}
               {actionError && <div>{actionError}</div>}
             </section>
           )}
@@ -1626,6 +1707,15 @@ export function Admin() {
                   : 'text-slate-600 hover:bg-slate-100'
               }`}>
               Booking Slip
+            </button>
+            <button
+              onClick={() => setActivePanel('complaints')}
+              className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+                activePanel === 'complaints'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}>
+              Complaints
             </button>
           </div>
           {activePanel === 'cod' ? (
@@ -3369,6 +3459,91 @@ export function Admin() {
                   </div>
                   );
                 })}
+              </section>
+            </>
+          ) : activePanel === 'complaints' ? (
+            <>
+              <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">
+                    Complaints Center
+                  </p>
+                  <h2 className="text-3xl lg:text-4xl font-semibold text-slate-900 mt-2">
+                    Merchant Complaints
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-2">
+                    Review issues submitted by merchants and jump to their profile.
+                  </p>
+                </div>
+                <div className="text-sm text-slate-500">
+                  Total: {filteredComplaints.length}
+                </div>
+              </div>
+
+              <section className="rounded-2xl border border-slate-200 bg-white/70 backdrop-blur p-4 shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[980px] text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-[0.2em] text-slate-400">
+                        <th className="pb-3">Date</th>
+                        <th className="pb-3">Merchant</th>
+                        <th className="pb-3">Contact</th>
+                        <th className="pb-3">Subject</th>
+                        <th className="pb-3">Complaint</th>
+                        <th className="pb-3">Priority</th>
+                        <th className="pb-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredComplaints.map((entry) => (
+                        <tr key={entry.id} className="hover:bg-slate-50">
+                          <td className="py-3 text-slate-600">
+                            {formatDate(entry.createdAt)} {formatTime(entry.createdAt)}
+                          </td>
+                          <td className="py-3 text-slate-800 font-semibold">
+                            {entry.merchantName || 'Merchant'}
+                          </td>
+                          <td className="py-3 text-slate-600">
+                            <div>{entry.email || '-'}</div>
+                            <div>{entry.phone || '-'}</div>
+                          </td>
+                          <td className="py-3 text-slate-800 font-semibold">
+                            {entry.subject}
+                          </td>
+                          <td className="py-3 text-slate-600">
+                            {entry.message.length > 120
+                              ? `${entry.message.slice(0, 120)}...`
+                              : entry.message}
+                          </td>
+                          <td className="py-3">
+                            <span
+                              className={`px-3 py-1 rounded-full text-xs font-semibold ${complaintPriorityBadge(
+                                entry.priority
+                              )}`}>
+                              {entry.priority}
+                            </span>
+                          </td>
+                          <td className="py-3 text-right">
+                            <button
+                              onClick={() => handleOpenMerchant(entry.accountId)}
+                              className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800">
+                              Open Merchant
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredComplaints.length === 0 && (
+                        <tr>
+                          <td
+                            colSpan={7}
+                            className="py-6 text-center text-sm text-slate-500">
+                            No complaints submitted yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </section>
             </>
           ) : (

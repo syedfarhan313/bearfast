@@ -15,7 +15,7 @@ import {
   LayoutGrid,
   Lock,
   Mail,
-  Menu,
+  MessageSquare,
   Moon,
   Package,
   PackageCheck,
@@ -49,6 +49,7 @@ import {
   STATUS_OPTIONS,
   isCodBooking
 } from '../utils/bookingStore';
+import { addMerchantFeedback, MerchantFeedback } from '../utils/merchantFeedbackStore';
 import { auth } from '../lib/firebase';
 import {
   createUserWithEmailAndPassword,
@@ -110,6 +111,8 @@ const DASHBOARD_NAV = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
   { key: 'orders', label: 'Orders', icon: Package },
   { key: 'wallet', label: 'Wallet', icon: Wallet },
+  { key: 'summary', label: 'Booking Summary', icon: Clipboard },
+  { key: 'support', label: 'Complaints', icon: MessageSquare },
   { key: 'reports', label: 'Reports', icon: FileText },
   { key: 'settings', label: 'Settings', icon: Settings }
 ] as const;
@@ -194,8 +197,31 @@ const formatDateTime = (iso: string) => {
   })}`;
 };
 
+const formatDateOnly = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString('en-GB');
+};
+
+const formatWeight = (value: number) => {
+  if (!Number.isFinite(value)) return '-';
+  return value
+    .toFixed(3)
+    .replace(/\.?0+$/, '');
+};
+
 const formatMoney = (value: number) =>
   value.toLocaleString('en-PK', { maximumFractionDigits: 0 });
+
+const initialFeedbackForm = {
+  type: 'complaint',
+  priority: 'normal',
+  subject: '',
+  trackingId: '',
+  orderId: '',
+  message: ''
+};
+
 export function CodRegistration() {
   const location = useLocation();
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
@@ -239,6 +265,11 @@ export function CodRegistration() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [showForgotConfirm, setShowForgotConfirm] = useState(false);
   const [showFundModal, setShowFundModal] = useState(false);
+  const [feedbackForm, setFeedbackForm] = useState(initialFeedbackForm);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackError, setFeedbackError] = useState('');
+  const [feedbackSuccess, setFeedbackSuccess] = useState('');
+  const [feedbackTicketId, setFeedbackTicketId] = useState('');
   const [accountNotFound, setAccountNotFound] = useState(false);
   const [fundRequests, setFundRequests] = useState<FundRequest[]>([]);
   const [fundAmount, setFundAmount] = useState('');
@@ -363,6 +394,7 @@ export function CodRegistration() {
       fundPrefilledRef.current = true;
     }
   }, [showFundModal, loginAccount]);
+
 
   useEffect(() => {
     let unsubscribeAccount = () => {};
@@ -973,6 +1005,59 @@ export function CodRegistration() {
     DASHBOARD_NAV.find((item) => item.key === activeSection)?.label ??
     'Dashboard';
 
+
+  const handleFeedbackChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
+    const { name, value } = e.target;
+    setFeedbackForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleFeedbackSubmit = async (
+    e: React.FormEvent<HTMLFormElement>
+  ) => {
+    e.preventDefault();
+    if (!loginAccount) {
+      setFeedbackError('Please sign in to submit your request.');
+      return;
+    }
+    if (!feedbackForm.subject.trim()) {
+      setFeedbackError('Subject is required.');
+      return;
+    }
+    if (!feedbackForm.message.trim()) {
+      setFeedbackError('Please share your details so we can help.');
+      return;
+    }
+    setFeedbackSubmitting(true);
+    setFeedbackError('');
+    setFeedbackSuccess('');
+    try {
+      const payload = await addMerchantFeedback({
+        accountId: loginAccount.id,
+        merchantName: loginAccount.companyName || 'Merchant',
+        email: loginAccount.email || '',
+        phone: loginAccount.phone || '',
+        type: feedbackForm.type as MerchantFeedback['type'],
+        priority: feedbackForm.priority as MerchantFeedback['priority'],
+        subject: feedbackForm.subject.trim(),
+        trackingId: feedbackForm.trackingId.trim(),
+        orderId: feedbackForm.orderId.trim(),
+        message: feedbackForm.message.trim(),
+        createdAt: new Date().toISOString(),
+        status: 'new'
+      });
+      setFeedbackTicketId(payload.id);
+      setFeedbackSuccess('Your request has been submitted.');
+      setFeedbackForm(initialFeedbackForm);
+    } catch (error) {
+      console.error('[COD] feedback submit failed', error);
+      setFeedbackError('Unable to submit right now. Please try again.');
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
   function getDisplayWalletBalance(account: CodAccountRequest | null) {
     if (!account) return 0;
     const planTotal = Number.isFinite(account.planTotal) ? account.planTotal : 0;
@@ -1092,21 +1177,32 @@ export function CodRegistration() {
       className={`w-full pt-20 min-h-screen ${
         viewMode === 'account'
           ? isDarkMode
-            ? 'bg-slate-950'
-            : 'bg-[#F8FAFC]'
+            ? 'bg-slate-950 text-slate-100'
+            : 'bg-[#F4F6FB] text-slate-900'
           : 'bg-gradient-to-b from-slate-50 via-white to-slate-100/70'
       }`}>
       {viewMode === 'account' && loginAccount ? (
-        <div className="min-h-screen" style={{ fontFamily: "'Poppins', 'Inter', system-ui, sans-serif" }}>
+        <div
+          className="min-h-screen relative overflow-hidden"
+          style={{ fontFamily: "'Poppins', 'Inter', system-ui, sans-serif" }}>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.18),transparent_55%),radial-gradient(circle_at_80%_20%,_rgba(244,63,94,0.10),transparent_40%),radial-gradient(circle_at_bottom,_rgba(14,165,233,0.12),transparent_55%)]" />
+          <div className="relative">
           <aside
-            className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-64 bg-[#0F172A] text-white flex-col">
-            <div className="px-6 py-6 flex items-center justify-end">
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(false)}
-                className="lg:hidden text-white/70 hover:text-white">
-                <X className="h-5 w-5" />
-              </button>
+            className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-900 text-white flex-col border-r border-white/10 shadow-[inset_-1px_0_0_rgba(255,255,255,0.05)]">
+            <div className="px-6 pt-6 pb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 rounded-2xl bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500 text-white flex items-center justify-center text-base font-black shadow-lg shadow-orange-500/30">
+                  BF
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">
+                    Bear Fast
+                  </p>
+                  <p className="text-lg font-semibold text-white">
+                    Merchant
+                  </p>
+                </div>
+              </div>
             </div>
             <nav className="px-4 space-y-2 flex-1">
               {DASHBOARD_NAV.map((item, index) => {
@@ -1117,12 +1213,12 @@ export function CodRegistration() {
                       canBookParcels ? (
                         <Link
                           to="/book"
-                          className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-lg font-semibold transition text-orange-200 hover:text-white hover:bg-white/5">
+                          className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-base font-semibold transition text-white/65 hover:text-white hover:bg-white/10">
                           <PlusCircle className="h-4 w-4" />
                           Book a Parcel
                         </Link>
                       ) : (
-                        <div className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-lg font-semibold text-white/40 cursor-not-allowed">
+                        <div className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-base font-semibold text-white/40 cursor-not-allowed">
                           <Lock className="h-4 w-4" />
                           Booking locked
                         </div>
@@ -1135,10 +1231,10 @@ export function CodRegistration() {
                         setSidebarOpen(false);
                       }}
                       aria-current={isActive ? 'page' : undefined}
-                      className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-lg font-semibold transition ${
+                      className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-base font-semibold transition ${
                         isActive
-                          ? 'bg-white/10 text-white'
-                          : 'text-white/70 hover:text-white hover:bg-white/5'
+                          ? 'bg-gradient-to-r from-white/20 to-white/5 text-white ring-1 ring-white/25 shadow-sm'
+                          : 'text-white/65 hover:text-white hover:bg-white/10'
                       }`}>
                       <item.icon className="h-4 w-4" />
                       {item.label}
@@ -1160,15 +1256,10 @@ export function CodRegistration() {
           )}
 
           <div className="lg:pl-64">
-            <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur">
-              <div className="px-4 sm:px-6 lg:px-10 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <header className="sticky top-0 z-40">
+              <div className="px-4 sm:px-6 lg:px-10 pt-4">
+                <div className="rounded-3xl border border-slate-200/70 bg-white/80 backdrop-blur-xl shadow-sm px-4 sm:px-6 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div className="flex items-start gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSidebarOpen(true)}
-                    className="hidden lg:inline-flex h-10 w-10 rounded-2xl border border-slate-200 text-slate-600 hover:text-slate-800">
-                    <Menu className="h-4 w-4 mx-auto" />
-                  </button>
                   <div>
                     <p className="text-[10px] sm:text-xs uppercase tracking-[0.25em] sm:tracking-[0.3em] text-slate-400">
                       Merchant Dashboard
@@ -1177,7 +1268,7 @@ export function CodRegistration() {
                       {loginAccount.companyName || 'Your COD Account'}
                     </h1>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs">
-                      <span className="px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold bg-slate-900 text-white">
+                      <span className="px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold bg-gradient-to-r from-slate-900 to-slate-700 text-white ring-1 ring-slate-900/10">
                         {activeSectionLabel}
                       </span>
                       <span
@@ -1185,7 +1276,7 @@ export function CodRegistration() {
                         {loginAccount.status.toUpperCase()}
                       </span>
                       <span
-                        className={`px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold text-white bg-gradient-to-r ${planBadgeClass()}`}>
+                        className={`px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold text-white bg-gradient-to-r ${planBadgeClass()} shadow-sm`}>
                         {loginAccount.planName}
                       </span>
                     </div>
@@ -1195,13 +1286,13 @@ export function CodRegistration() {
                   <button
                     type="button"
                     onClick={() => navigate('/alerts?scope=user')}
-                    className="h-10 w-10 rounded-full border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 transition">
+                    className="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:border-slate-300 transition">
                     <Bell className="h-4 w-4 mx-auto" />
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsDarkMode((prev) => !prev)}
-                    className="h-10 w-10 rounded-full border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 transition">
+                    className="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:border-slate-300 transition">
                     {isDarkMode ? (
                       <Sun className="h-4 w-4 mx-auto" />
                     ) : (
@@ -1214,7 +1305,7 @@ export function CodRegistration() {
                       onClick={() => setProfileOpen((prev) => !prev)}
                       aria-haspopup="menu"
                       aria-expanded={profileOpen}
-                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50">
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-2xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50">
                       <UserCircle2 className="h-5 w-5 text-slate-500" />
                       Profile
                       <ChevronDown
@@ -1281,16 +1372,17 @@ export function CodRegistration() {
                     onClick={() => {
                       signOut(auth);
                     }}
-                    className="btn-ripple col-span-2 sm:col-span-1 w-full sm:w-auto text-center px-5 py-2.5 rounded-full border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50">
+                    className="btn-ripple col-span-2 sm:col-span-1 w-full sm:w-auto text-center px-5 py-2.5 rounded-2xl border border-slate-200 bg-white text-slate-700 font-semibold hover:bg-slate-50">
                     Logout
                   </button>
                 </div>
               </div>
+              </div>
             </header>
 
-            <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-800/70 bg-[#0F172A]">
-              <div className="max-w-[600px] mx-auto px-3 pt-2 pb-3">
-                <div className="grid grid-cols-6 gap-2">
+            <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-[#0B1220] shadow-[0_-10px_30px_-20px_rgba(15,23,42,0.7)]">
+              <div className="max-w-[760px] mx-auto px-3 pt-2 pb-3">
+                <div className="grid grid-cols-8 gap-2">
                   {DASHBOARD_NAV.map((item, index) => {
                     const isActive = activeSection === item.key;
                     return (
@@ -1299,7 +1391,7 @@ export function CodRegistration() {
                           canBookParcels ? (
                             <Link
                               to="/book"
-                              className="flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold transition text-orange-200 hover:bg-white/5 hover:text-white">
+                              className="flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold transition text-white/70 hover:bg-white/10 hover:text-white">
                               <PlusCircle className="h-5 w-5" />
                               <span className="leading-none">Book a Parcel</span>
                             </Link>
@@ -1316,8 +1408,8 @@ export function CodRegistration() {
                           aria-current={isActive ? 'page' : undefined}
                           className={`flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold transition ${
                             isActive
-                              ? 'bg-white/10 text-white ring-1 ring-white/15'
-                              : 'text-white/70 hover:bg-white/5 hover:text-white'
+                              ? 'bg-gradient-to-r from-white/20 to-white/5 text-white ring-1 ring-white/25'
+                              : 'text-white/70 hover:bg-white/10 hover:text-white'
                           }`}>
                           <item.icon className="h-5 w-5" />
                           <span className="leading-none">{item.label}</span>
@@ -1346,7 +1438,7 @@ export function CodRegistration() {
 
               {activeSection === 'dashboard' && (
                 <>
-                  <section className="rounded-3xl border border-slate-200/60 bg-white p-5 sm:p-6 shadow-sm">
+                  <section className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div>
                         <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
@@ -1382,7 +1474,10 @@ export function CodRegistration() {
                     </div>
                   </section>
                   <section className="grid gap-6 lg:grid-cols-12">
-                  <div className="lg:col-span-8 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-800 p-6 sm:p-8 text-white shadow-2xl">
+                  <div className="lg:col-span-8 rounded-[30px] bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-800 p-6 sm:p-8 text-white shadow-[0_30px_60px_-40px_rgba(15,23,42,0.85)] border border-white/10 relative overflow-hidden">
+                    <div className="pointer-events-none absolute -top-24 -right-20 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
+                    <div className="pointer-events-none absolute -bottom-24 -left-16 h-56 w-56 rounded-full bg-sky-400/20 blur-3xl" />
+                    <div className="relative">
                     <div className="flex flex-wrap items-start justify-between gap-6">
                       <div>
                         <p className="text-xs uppercase tracking-[0.3em] text-white/70">
@@ -1438,6 +1533,7 @@ export function CodRegistration() {
                         Fund request pending: Rs. {formatMoney(pendingFundRequest.amount)}. Admin will review it soon.
                       </div>
                     )}
+                    </div>
                   </div>
 
                   <div className="lg:col-span-4 grid gap-4">
@@ -1466,8 +1562,8 @@ export function CodRegistration() {
                       ].map((stat) => (
                         <div
                           key={stat.label}
-                          className="rounded-2xl bg-white shadow-sm p-4 border border-slate-200/60">
-                          <div className="h-9 w-9 rounded-2xl bg-slate-900/5 flex items-center justify-center">
+                          className="rounded-2xl bg-white/90 shadow-[0_12px_30px_-20px_rgba(15,23,42,0.35)] p-4 border border-slate-200/70 transition hover:-translate-y-0.5 hover:shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]">
+                          <div className="h-9 w-9 rounded-2xl bg-slate-900/5 ring-1 ring-slate-200/70 flex items-center justify-center">
                             <stat.icon className="h-4 w-4 text-slate-700" />
                           </div>
                           <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mt-3">
@@ -1484,9 +1580,239 @@ export function CodRegistration() {
                 </>
               )}
 
+              {activeSection === 'summary' && (
+                <>
+                  <section className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Booking Summary
+                        </p>
+                        <h2 className="text-2xl sm:text-3xl font-semibold text-slate-800 mt-2">
+                          All Bookings
+                        </h2>
+                        <p className="text-sm text-slate-500 mt-1">
+                          Showing {sortedBookings.length} bookings
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/60">
+                      <div className="max-h-[70vh] overflow-auto">
+                        <table className="w-full min-w-[1150px] text-sm">
+                          <thead className="bg-slate-50 sticky top-0 z-10">
+                            <tr className="text-left text-[11px] uppercase tracking-[0.2em] text-slate-400">
+                              <th className="px-4 py-3">Date</th>
+                              <th className="px-4 py-3">Tracking No</th>
+                              <th className="px-4 py-3">Pickup Info</th>
+                              <th className="px-4 py-3">Delivery Info</th>
+                              <th className="px-4 py-3 text-center">Qty</th>
+                              <th className="px-4 py-3">Pickup City</th>
+                              <th className="px-4 py-3">Delivery City</th>
+                              <th className="px-4 py-3">Weight</th>
+                              <th className="px-4 py-3">COD Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200 bg-white">
+                            {sortedBookings.map((booking) => {
+                              const pickupCompany =
+                                booking.merchantName ||
+                                loginAccount?.companyName ||
+                                '-';
+                              const pickupName = booking.senderName || '-';
+                              const pickupPhone = booking.senderPhone || '-';
+                              const orderId = booking.orderId || '-';
+                              const deliveryName = booking.receiverName || '-';
+                              const deliveryPhone = booking.receiverPhone || '-';
+                              const pieces = booking.pieces ?? 1;
+                              const codValue =
+                                booking.codAmount && booking.codAmount.trim()
+                                  ? booking.codAmount
+                                  : '0';
+                              return (
+                                <tr
+                                  key={booking.trackingId}
+                                  className="hover:bg-slate-50">
+                                  <td className="px-4 py-4 text-slate-700 font-semibold">
+                                    {formatDateOnly(booking.createdAt)}
+                                  </td>
+                                  <td className="px-4 py-4 font-semibold text-slate-900">
+                                    {booking.trackingId}
+                                  </td>
+                                  <td className="px-4 py-4">
+                                    <div className="space-y-1 text-xs text-slate-600">
+                                      <div>
+                                        <span className="text-slate-400">Name:</span>{' '}
+                                        {pickupName}
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400">
+                                          Company:
+                                        </span>{' '}
+                                        {pickupCompany}
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400">
+                                          Phone:
+                                        </span>{' '}
+                                        {pickupPhone}
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400">
+                                          Order ID:
+                                        </span>{' '}
+                                        {orderId}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-4">
+                                    <div className="space-y-1 text-xs text-slate-600">
+                                      <div>
+                                        <span className="text-slate-400">Name:</span>{' '}
+                                        {deliveryName}
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400">
+                                          Phone:
+                                        </span>{' '}
+                                        {deliveryPhone}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-4 text-center text-slate-700">
+                                    {pieces}
+                                  </td>
+                                  <td className="px-4 py-4 text-slate-700">
+                                    {booking.senderCity || '-'}
+                                  </td>
+                                  <td className="px-4 py-4 text-slate-700">
+                                    {booking.receiverCity || '-'}
+                                  </td>
+                                  <td className="px-4 py-4 text-slate-700">
+                                    {formatWeight(booking.weightKg)} Kg
+                                  </td>
+                                  <td className="px-4 py-4 text-slate-700 whitespace-nowrap">
+                                    Rs. {codValue}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            {sortedBookings.length === 0 && (
+                              <tr>
+                                <td
+                                  colSpan={9}
+                                  className="px-4 py-8 text-center text-sm text-slate-500">
+                                  No bookings yet. Book a parcel to see the summary
+                                  here.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </section>
+                </>
+              )}
+
+              {activeSection === 'support' && (
+                <section className="max-w-3xl mx-auto rounded-[28px] border border-slate-200/70 bg-white/90 p-6 sm:p-8 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                      Complaints
+                    </p>
+                    <h3 className="text-2xl sm:text-3xl font-semibold text-slate-800 mt-2">
+                      Submit Complaint
+                    </h3>
+                  </div>
+
+                  <form
+                    className="mt-6 space-y-4"
+                    onSubmit={handleFeedbackSubmit}>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
+                          Priority
+                        </label>
+                        <select
+                          name="priority"
+                          value={feedbackForm.priority}
+                          onChange={handleFeedbackChange}
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                          <option value="low">Low</option>
+                          <option value="normal">Normal</option>
+                          <option value="high">High</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
+                          Subject *
+                        </label>
+                        <input
+                          name="subject"
+                          value={feedbackForm.subject}
+                          onChange={handleFeedbackChange}
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="e.g. Delay in pickup" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">
+                        Contact Email
+                      </label>
+                      <input
+                        value={loginAccount?.email || ''}
+                        readOnly
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500" />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">
+                        Complaint Details *
+                      </label>
+                      <textarea
+                        name="message"
+                        value={feedbackForm.message}
+                        onChange={handleFeedbackChange}
+                        rows={5}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                        placeholder="Write full details so our team can resolve quickly." />
+                    </div>
+
+                    {feedbackError && (
+                      <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                        {feedbackError}
+                      </div>
+                    )}
+                    {feedbackSuccess && (
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                        {feedbackSuccess}
+                        {feedbackTicketId && (
+                          <span className="ml-2 font-semibold">
+                            Ticket: {feedbackTicketId}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="submit"
+                        disabled={feedbackSubmitting}
+                        className="btn-ripple inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-70">
+                        {feedbackSubmitting ? 'Submitting...' : 'Submit Complaint'}
+                      </button>
+                      <span className="text-xs text-slate-500">
+                        We will contact you on your registered phone/email.
+                      </span>
+                    </div>
+                  </form>
+                </section>
+              )}
+
               {activeSection === 'reports' && (
                 <section className="grid gap-6 lg:grid-cols-12">
-                  <div className="lg:col-span-8 rounded-3xl border border-slate-200/60 bg-white p-6 shadow-sm">
+                  <div className="lg:col-span-8 rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <div>
                         <p className="text-sm font-semibold text-slate-800">
@@ -1565,7 +1891,7 @@ export function CodRegistration() {
                   </div>
 
                   <div className="lg:col-span-4 grid gap-4">
-                    <div className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm">
+                    <div className="rounded-2xl border border-slate-200/70 bg-white/90 p-5 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.3)]">
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                         Shipment Performance
                       </p>
@@ -1584,7 +1910,7 @@ export function CodRegistration() {
                         </div>
                       </div>
                     </div>
-                    <div className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm">
+                    <div className="rounded-2xl border border-slate-200/70 bg-white/90 p-5 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.3)]">
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                         COD Balance
                       </p>
@@ -1595,7 +1921,7 @@ export function CodRegistration() {
                         Total COD collected to date
                       </p>
                     </div>
-                    <div className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm">
+                    <div className="rounded-2xl border border-slate-200/70 bg-white/90 p-5 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.3)]">
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                         Pickup Schedule
                       </p>
@@ -1611,7 +1937,7 @@ export function CodRegistration() {
               )}
 
               {activeSection === 'dashboard' && (
-                <section className="rounded-3xl border border-slate-200/60 bg-white p-6 shadow-sm">
+                <section className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                       <p className="text-xl sm:text-2xl font-semibold text-slate-800">
@@ -1624,7 +1950,7 @@ export function CodRegistration() {
                     <button
                       type="button"
                       onClick={() => setActiveSection('orders')}
-                      className="text-base sm:text-lg font-semibold text-orange-600 hover:text-orange-700">
+                      className="text-base sm:text-lg font-semibold text-orange-600 hover:text-orange-700 underline underline-offset-4 decoration-orange-200/80">
                       View all
                     </button>
                   </div>
@@ -1759,7 +2085,7 @@ export function CodRegistration() {
                     </div>
                   </section>
 
-                  <section className="rounded-2xl border border-slate-200/50 bg-white p-6 shadow-sm">
+                  <section className="rounded-[26px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_18px_45px_-34px_rgba(15,23,42,0.4)] backdrop-blur">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <div>
                         <p className="text-2xl font-semibold text-slate-800">
@@ -2035,7 +2361,7 @@ export function CodRegistration() {
                     </div>
                   </section>
 
-                  <section className="rounded-3xl border border-slate-200/60 bg-white p-6 shadow-sm">
+                  <section className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <div>
                         <p className="text-xl sm:text-2xl font-semibold text-slate-800">
@@ -2328,6 +2654,7 @@ export function CodRegistration() {
             </main>
           </div>
 
+        </div>
         </div>
       ) : (
         <>

@@ -95,6 +95,18 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    match /merchantFeedback/{feedbackId} {
+      allow create: if isSignedIn()
+        && request.resource.data.accountId == request.auth.uid;
+
+      allow read: if isAdmin();
+
+      allow read: if isSignedIn()
+        && resource.data.accountId == request.auth.uid;
+
+      allow update, delete: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
