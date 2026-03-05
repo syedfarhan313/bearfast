@@ -5,6 +5,7 @@ import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { FloatingWhatsApp } from './components/FloatingWhatsApp';
 import { ProtectedAdminRoute } from './components/ProtectedAdminRoute';
+import { ProtectedRiderRoute } from './components/ProtectedRiderRoute';
 import { auth } from './lib/firebase';
 import { isAdminEmail } from './utils/adminAuth';
 
@@ -51,10 +52,18 @@ const ShipmentLabel = React.lazy(() =>
 const Alerts = React.lazy(() =>
   import('./pages/Alerts').then((mod) => ({ default: mod.Alerts }))
 );
+const RiderPortal = React.lazy(() =>
+  import('./pages/RiderPortal').then((mod) => ({ default: mod.RiderPortal }))
+);
+const RiderPanel = React.lazy(() =>
+  import('./pages/RiderPanel').then((mod) => ({ default: mod.RiderPanel }))
+);
 
 function AppLayout() {
   const location = useLocation();
-  const hideChrome = location.pathname === '/label';
+  const hideChrome =
+    location.pathname === '/label' ||
+    location.pathname.startsWith('/rider');
   const [authUser, setAuthUser] = useState<User | null>(null);
 
   const isAdminArea = useMemo(() => {
@@ -102,6 +111,10 @@ function AppLayout() {
             <Route element={<ProtectedAdminRoute />}>
               <Route path="/admin" element={<Admin />} />
             </Route>
+            <Route path="/rider" element={<RiderPortal />} />
+            <Route element={<ProtectedRiderRoute />}>
+              <Route path="/rider-panel" element={<RiderPanel />} />
+            </Route>
             <Route path="/cod-account" element={<CodAccount />} />
             <Route path="/cod-registration" element={<CodRegistration />} />
             <Route path="/label" element={<ShipmentLabel />} />
@@ -116,7 +129,8 @@ function AppLayout() {
 }
 export function App() {
   return (
-    <BrowserRouter future={{ v7_relativeSplatPath: true }}>
+    <BrowserRouter
+      future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <AppLayout />
     </BrowserRouter>);
 

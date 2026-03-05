@@ -607,43 +607,78 @@ export function CodRegistration() {
     if (!selectedPlanData) return;
     const nowIso = new Date().toISOString();
     const email = formData.email.trim().toLowerCase();
+    const payload = {
+      planCode: selectedPlanData.code,
+      planName: selectedPlanData.name,
+      planTotal: selectedPlanData.base + selectedPlanData.charges,
+      walletBalance: selectedPlanData.base,
+      status: 'pending' as const,
+      statusHistory: [{ status: 'pending' as const, at: nowIso }],
+      createdAt: nowIso,
+      companyName: formData.companyName,
+      companyLegalName: formData.companyLegalName,
+      businessType: formData.businessType,
+      website: formData.website,
+      contactName: formData.contactName,
+      phone: formData.phone,
+      email,
+      altPhone: formData.altPhone,
+      address: formData.address,
+      cnic: formData.cnic,
+      bankName: formData.bankName,
+      accountTitle: formData.accountTitle,
+      accountNumber: formData.accountNumber,
+      iban: formData.iban,
+      swiftCode: formData.swiftCode,
+      branchName: formData.branchName,
+      branchCode: formData.branchCode,
+      city: formData.city,
+      pickupTimings: formData.pickupTimings,
+      monthlyShipment: formData.monthlyShipment,
+      specialInstructions: formData.specialInstructions,
+      googleMapPin: formData.googleMapPin
+    };
     try {
-      const credential = await createUserWithEmailAndPassword(
-        auth,
-        email,
-        formData.password
-      );
-      await addCodAccount(credential.user.uid, {
-        planCode: selectedPlanData.code,
-        planName: selectedPlanData.name,
-        planTotal: selectedPlanData.base + selectedPlanData.charges,
-        walletBalance: selectedPlanData.base,
-        status: 'pending',
-        statusHistory: [{ status: 'pending', at: nowIso }],
-        createdAt: nowIso,
-        companyName: formData.companyName,
-        companyLegalName: formData.companyLegalName,
-        businessType: formData.businessType,
-        website: formData.website,
-        contactName: formData.contactName,
-        phone: formData.phone,
-        email,
-        altPhone: formData.altPhone,
-        address: formData.address,
-        cnic: formData.cnic,
-        bankName: formData.bankName,
-        accountTitle: formData.accountTitle,
-        accountNumber: formData.accountNumber,
-        iban: formData.iban,
-        swiftCode: formData.swiftCode,
-        branchName: formData.branchName,
-        branchCode: formData.branchCode,
-        city: formData.city,
-        pickupTimings: formData.pickupTimings,
-        monthlyShipment: formData.monthlyShipment,
-        specialInstructions: formData.specialInstructions,
-        googleMapPin: formData.googleMapPin
-      });
+      const existingUser =
+        auth.currentUser && !auth.currentUser.isAnonymous
+          ? auth.currentUser
+          : null;
+      let authUser = existingUser;
+      if (authUser) {
+        const currentEmail = (authUser.email || '').toLowerCase();
+        if (currentEmail && currentEmail !== email) {
+          setSubmitError(
+            'Please sign in with the same email to register this account.'
+          );
+          return;
+        }
+      }
+      if (!authUser) {
+        try {
+          const credential = await createUserWithEmailAndPassword(
+            auth,
+            email,
+            formData.password
+          );
+          authUser = credential.user;
+        } catch (err) {
+          const code =
+            typeof err === 'object' && err && 'code' in err
+              ? String((err as { code: string }).code)
+              : '';
+          if (code === 'auth/email-already-in-use') {
+            const credential = await signInWithEmailAndPassword(
+              auth,
+              email,
+              formData.password
+            );
+            authUser = credential.user;
+          } else {
+            throw err;
+          }
+        }
+      }
+      await addCodAccount(authUser.uid, payload);
       setSubmitted(true);
       setShowSuccessModal(true);
     } catch (error) {
@@ -656,10 +691,18 @@ export function CodRegistration() {
           ...prev,
           email: 'Email already registered. Please sign in.'
         }));
-        setSubmitError('Email already registered. Please sign in.');
+        setSubmitError(
+          'Email already registered. Please use the same password to continue.'
+        );
       } else if (code === 'auth/invalid-email') {
         setErrors((prev) => ({ ...prev, email: 'Enter a valid email.' }));
         setSubmitError('Enter a valid email address.');
+      } else if (
+        code === 'auth/wrong-password' ||
+        code === 'auth/invalid-credential' ||
+        code === 'auth/invalid-login-credentials'
+      ) {
+        setSubmitError('Incorrect password for this email.');
       } else if (code === 'auth/weak-password') {
         setErrors((prev) => ({
           ...prev,

@@ -12,8 +12,14 @@
   --orange-primary: #F97316;
   --slate-dark: #1E293B;
 }
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
 body {
   font-family: 'EB Garamond', Georgia, serif;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
 }
 .admin-ui {
   font-family: 'Poppins', 'Inter', system-ui, sans-serif;

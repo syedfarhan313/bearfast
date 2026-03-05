@@ -12,8 +12,16 @@ import {
   isCodBooking,
   deleteAllBookings,
   subscribeBookings,
-  updateBookingStatus
+  updateBookingStatus,
+  updateBookingAssignment
 } from '../utils/bookingStore';
+import {
+  RiderApplication,
+  RiderStatus,
+  clearRiders,
+  subscribeRiders,
+  updateRiderStatus
+} from '../utils/riderStore';
 import {
   CodAccountRequest,
   CodAccountStatus,
@@ -63,6 +71,80 @@ import {
   XCircle
 } from 'lucide-react';
 
+const PUNJAB_CITIES = [
+  'lahore',
+  'rawalpindi',
+  'faisalabad',
+  'multan',
+  'gujranwala',
+  'sialkot',
+  'bahawalpur',
+  'sargodha',
+  'gujrat',
+  'okara',
+  'sahiwal',
+  'jhelum',
+  'sheikhupura',
+  'kasur',
+  'chakwal',
+  'attock',
+  'dera ghazi khan',
+  'bahawalnagar',
+  'rahim yar khan',
+  'khushab',
+  'mandi bahauddin'
+];
+const SINDH_CITIES = [
+  'karachi',
+  'hyderabad',
+  'sukkur',
+  'larkana',
+  'mirpurkhas',
+  'nawabshah',
+  'shaheed benazirabad',
+  'khairpur',
+  'jacobabad',
+  'thatta'
+];
+const KPK_CITIES = [
+  'peshawar',
+  'mardan',
+  'swat',
+  'abbottabad',
+  'mansehra',
+  'swabi',
+  'kohat',
+  'bannu',
+  'dera ismail khan',
+  'charsadda',
+  'nowshera',
+  'dir',
+  'chitral'
+];
+const BALOCHISTAN_CITIES = [
+  'quetta',
+  'gwadar',
+  'khuzdar',
+  'turbat',
+  'chaman',
+  'hub',
+  'sibbi',
+  'zhob'
+];
+
+const normalizeCityName = (value?: string | null) =>
+  (value || '').trim().toLowerCase();
+
+const getProvinceFromCity = (city?: string | null) => {
+  const normalized = normalizeCityName(city);
+  if (!normalized) return 'other';
+  if (PUNJAB_CITIES.includes(normalized)) return 'punjab';
+  if (SINDH_CITIES.includes(normalized)) return 'sindh';
+  if (KPK_CITIES.includes(normalized)) return 'kpk';
+  if (BALOCHISTAN_CITIES.includes(normalized)) return 'balochistan';
+  return 'other';
+};
+
 export function Admin() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -74,11 +156,14 @@ export function Admin() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [rejectionError, setRejectionError] = useState('');
   const [activePanel, setActivePanel] = useState<
-    'bookings' | 'cod' | 'slips' | 'complaints'
+    'bookings' | 'cod' | 'slips' | 'complaints' | 'riders' | 'receipts'
   >('cod');
   const [codAccounts, setCodAccounts] = useState<CodAccountRequest[]>([]);
   const [codStatusFilter, setCodStatusFilter] = useState<string>('all');
   const [codCityFilter, setCodCityFilter] = useState<string>('all');
+  const [codProvinceFilter, setCodProvinceFilter] = useState<
+    'all' | 'punjab' | 'sindh' | 'kpk' | 'balochistan'
+  >('all');
   const [codQuery, setCodQuery] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
     null
@@ -89,7 +174,15 @@ export function Admin() {
   const [parcelTo, setParcelTo] = useState('');
   const [slipTab, setSlipTab] = useState<'cod' | 'non-cod'>('cod');
   const [slipQuery, setSlipQuery] = useState('');
+  const [receiptQuery, setReceiptQuery] = useState('');
   const [complaintsQuery, setComplaintsQuery] = useState('');
+  const [riderQuery, setRiderQuery] = useState('');
+  const [riderStatusFilter, setRiderStatusFilter] = useState('all');
+  const [riderCityFilter, setRiderCityFilter] = useState('all');
+  const [riderProvinceFilter, setRiderProvinceFilter] = useState<
+    'all' | 'punjab' | 'sindh' | 'kpk' | 'balochistan'
+  >('all');
+  const [riders, setRiders] = useState<RiderApplication[]>([]);
   const [fundRequests, setFundRequests] = useState<FundRequest[]>([]);
   const [complaints, setComplaints] = useState<MerchantFeedback[]>([]);
   const [manualTransactions, setManualTransactions] = useState<
@@ -112,6 +205,7 @@ export function Admin() {
   const [codAccountsLoadError, setCodAccountsLoadError] = useState('');
   const [fundRequestsLoadError, setFundRequestsLoadError] = useState('');
   const [complaintsLoadError, setComplaintsLoadError] = useState('');
+  const [ridersLoadError, setRidersLoadError] = useState('');
   const [actionError, setActionError] = useState('');
   const [liveNotifications, setLiveNotifications] = useState<
     {
@@ -124,6 +218,18 @@ export function Admin() {
       requestId?: string;
     }[]
   >([]);
+  const provinceParam = useMemo(() => {
+    const param = new URLSearchParams(location.search).get('province');
+    if (
+      param === 'punjab' ||
+      param === 'sindh' ||
+      param === 'kpk' ||
+      param === 'balochistan'
+    ) {
+      return param;
+    }
+    return null;
+  }, [location.search]);
   const [highlightedAccounts, setHighlightedAccounts] = useState<
     Record<string, number>
   >({});
@@ -147,7 +253,19 @@ export function Admin() {
     { key: 'suspended', label: 'Suspended' },
     { key: 'rejected', label: 'Rejected' }
   ];
+  const riderStatusOptions: { key: RiderStatus; label: string }[] = [
+    { key: 'pending', label: 'Pending' },
+    { key: 'approved', label: 'Approved' },
+    { key: 'suspended', label: 'Suspended' },
+    { key: 'rejected', label: 'Rejected' }
+  ];
   const codStatusBadge: Record<CodAccountStatus, string> = {
+    pending: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/70',
+    approved: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/70',
+    suspended: 'bg-slate-100 text-slate-700 ring-1 ring-slate-200/70',
+    rejected: 'bg-rose-50 text-rose-700 ring-1 ring-rose-200/70'
+  };
+  const riderStatusBadge: Record<RiderStatus, string> = {
     pending: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/70',
     approved: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/70',
     suspended: 'bg-slate-100 text-slate-700 ring-1 ring-slate-200/70',
@@ -258,6 +376,8 @@ export function Admin() {
     if (status === 'rejected') return 'Rejected';
     return status;
   };
+  const normalizeCity = (value?: string | null) =>
+    (value || '').trim().toLowerCase();
   const bookingStatusBadge = (status: BookingStatusKey) =>
     STATUS_OPTIONS.find((item) => item.key === status)?.badge ||
     'bg-slate-100 text-slate-700';
@@ -727,6 +847,20 @@ export function Admin() {
 
   useEffect(() => {
     if (!authReady || !authUser) return;
+    const unsubscribe = subscribeRiders((items) => {
+      setRiders(items);
+      setRidersLoadError('');
+    }, (error) => {
+      console.error('[Admin] riders subscribe failed', error);
+      setRidersLoadError(
+        'Unable to load riders. Please check Firebase permissions.'
+      );
+    });
+    return () => unsubscribe();
+  }, [authReady, authUser?.uid]);
+
+  useEffect(() => {
+    if (!authReady || !authUser) return;
     const unsubscribe = subscribeFundRequests((items) => {
       setFundRequests(items);
       setFundRequestsLoadError('');
@@ -766,6 +900,34 @@ export function Admin() {
     }
     if (params.get('tab') === 'complaints') {
       setActivePanel('complaints');
+    }
+    if (params.get('tab') === 'riders') {
+      setActivePanel('riders');
+    }
+    if (params.get('tab') === 'receipts') {
+      setActivePanel('receipts');
+    }
+    if (params.get('tab') === 'cod') {
+      const province = params.get('province');
+      if (
+        province === 'punjab' ||
+        province === 'sindh' ||
+        province === 'kpk' ||
+        province === 'balochistan'
+      ) {
+        setCodProvinceFilter(province);
+        setSelectedAccountId(null);
+      }
+      const status = params.get('status');
+      if (
+        status === 'all' ||
+        status === 'pending' ||
+        status === 'approved' ||
+        status === 'rejected' ||
+        status === 'suspended'
+      ) {
+        setCodStatusFilter(status);
+      }
     }
   }, [location.search]);
 
@@ -811,6 +973,72 @@ export function Admin() {
     return base;
   }, [codAccounts]);
 
+  const codProvinceCounts = useMemo(() => {
+    const base = {
+      punjab: 0,
+      sindh: 0,
+      kpk: 0,
+      balochistan: 0
+    };
+    codAccounts.forEach((account) => {
+      const province = getProvinceFromCity(account.city);
+      if (province === 'punjab') base.punjab += 1;
+      if (province === 'sindh') base.sindh += 1;
+      if (province === 'kpk') base.kpk += 1;
+      if (province === 'balochistan') base.balochistan += 1;
+    });
+    return base;
+  }, [codAccounts]);
+
+  const codProvincePendingCounts = useMemo(() => {
+    const base = {
+      punjab: 0,
+      sindh: 0,
+      kpk: 0,
+      balochistan: 0
+    };
+    codAccounts.forEach((account) => {
+      if (account.status !== 'pending') return;
+      const province = getProvinceFromCity(account.city);
+      if (province === 'punjab') base.punjab += 1;
+      if (province === 'sindh') base.sindh += 1;
+      if (province === 'kpk') base.kpk += 1;
+      if (province === 'balochistan') base.balochistan += 1;
+    });
+    return base;
+  }, [codAccounts]);
+
+  const riderCounts = useMemo(() => {
+    const base: Record<string, number> = {
+      all: riders.length,
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+      suspended: 0
+    };
+    riders.forEach((rider) => {
+      base[rider.status] = (base[rider.status] || 0) + 1;
+    });
+    return base;
+  }, [riders]);
+
+  const riderProvinceCounts = useMemo(() => {
+    const base = {
+      punjab: 0,
+      sindh: 0,
+      kpk: 0,
+      balochistan: 0
+    };
+    riders.forEach((rider) => {
+      const province = getProvinceFromCity(rider.city);
+      if (province === 'punjab') base.punjab += 1;
+      if (province === 'sindh') base.sindh += 1;
+      if (province === 'kpk') base.kpk += 1;
+      if (province === 'balochistan') base.balochistan += 1;
+    });
+    return base;
+  }, [riders]);
+
   const filtered = useMemo(() => {
     return bookings.filter((booking) => {
       if (!isNonCodBooking(booking)) return false;
@@ -851,12 +1079,56 @@ export function Admin() {
     });
   }, [bookings, slipQuery, slipTab]);
 
+  const deliveryReceipts = useMemo(() => {
+    const base = bookings.filter(
+      (booking) =>
+        booking.assignedRiderId &&
+        (booking.status === 'delivered' || booking.status === 'payment_received')
+    );
+    const search = receiptQuery.trim().toLowerCase();
+    const filteredBase = search
+      ? base.filter((booking) => {
+          const haystack = [
+            booking.trackingId,
+            booking.senderName,
+            booking.senderPhone,
+            booking.receiverName,
+            booking.receiverPhone,
+            booking.senderCity,
+            booking.receiverCity,
+            booking.assignedRiderName,
+            booking.assignedRiderId,
+            booking.assignedRiderCity
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          return haystack.includes(search);
+        })
+      : base;
+    return filteredBase.sort((a, b) => {
+      const aTime = new Date(
+        a.statusHistory[a.statusHistory.length - 1]?.at || a.createdAt
+      ).getTime();
+      const bTime = new Date(
+        b.statusHistory[b.statusHistory.length - 1]?.at || b.createdAt
+      ).getTime();
+      return bTime - aTime;
+    });
+  }, [bookings, receiptQuery]);
+
   const filteredCodAccounts = useMemo(() => {
     return codAccounts.filter((account) => {
       const matchStatus =
         codStatusFilter === 'all' ? true : account.status === codStatusFilter;
+      const normalizedCity = normalizeCityName(account.city);
+      const cityFilter = normalizeCityName(codCityFilter);
       const matchCity =
-        codCityFilter === 'all' ? true : account.city === codCityFilter;
+        codCityFilter === 'all' ? true : normalizedCity === cityFilter;
+      const matchProvince =
+        codProvinceFilter === 'all'
+          ? true
+          : getProvinceFromCity(account.city) === codProvinceFilter;
       const search = codQuery.trim().toLowerCase();
       const matchQuery = search
         ? account.companyName.toLowerCase().includes(search) ||
@@ -865,9 +1137,85 @@ export function Admin() {
           account.phone.toLowerCase().includes(search) ||
           account.id.toLowerCase().includes(search)
         : true;
-      return matchStatus && matchCity && matchQuery;
+      const provinceOk = codCityFilter === 'all' ? matchProvince : true;
+      return matchStatus && provinceOk && matchCity && matchQuery;
     });
-  }, [codAccounts, codStatusFilter, codCityFilter, codQuery]);
+  }, [codAccounts, codStatusFilter, codCityFilter, codQuery, codProvinceFilter]);
+
+  const riderCityOptions = useMemo(() => {
+    const cities = new Set<string>();
+    riders.forEach((rider) => {
+      if (rider.city) cities.add(rider.city);
+    });
+    return Array.from(cities).sort();
+  }, [riders]);
+
+  const filteredRiders = useMemo(() => {
+    return riders.filter((rider) => {
+      const matchStatus =
+        riderStatusFilter === 'all' ? true : rider.status === riderStatusFilter;
+      const matchCity =
+        riderCityFilter === 'all' ? true : rider.city === riderCityFilter;
+      const matchProvince =
+        riderProvinceFilter === 'all'
+          ? true
+          : getProvinceFromCity(rider.city) === riderProvinceFilter;
+      const search = riderQuery.trim().toLowerCase();
+      const matchQuery = search
+        ? [
+            rider.fullName,
+            rider.fatherName,
+            rider.cnic,
+            rider.mobile,
+            rider.email,
+            rider.city,
+            rider.area
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
+            .includes(search)
+        : true;
+      const provinceOk = riderCityFilter === 'all' ? matchProvince : true;
+      return matchStatus && provinceOk && matchCity && matchQuery;
+    });
+  }, [riders, riderStatusFilter, riderCityFilter, riderQuery, riderProvinceFilter]);
+
+  const riderStats = useMemo(() => {
+    const stats: Record<
+      string,
+      { total: number; delivered: number; pending: number }
+    > = {};
+    bookings.forEach((booking) => {
+      if (!booking.assignedRiderId) return;
+      if (!stats[booking.assignedRiderId]) {
+        stats[booking.assignedRiderId] = { total: 0, delivered: 0, pending: 0 };
+      }
+      const bucket = stats[booking.assignedRiderId];
+      bucket.total += 1;
+      if (booking.status === 'delivered') {
+        bucket.delivered += 1;
+      } else {
+        bucket.pending += 1;
+      }
+    });
+    return stats;
+  }, [bookings]);
+
+  const approvedActiveRiders = useMemo(
+    () => riders.filter((rider) => rider.status === 'approved' && rider.authUid),
+    [riders]
+  );
+
+  const riderLookup = useMemo(() => {
+    const map = new Map<string, RiderApplication>();
+    approvedActiveRiders.forEach((rider) => {
+      if (rider.authUid) {
+        map.set(rider.authUid, rider);
+      }
+    });
+    return map;
+  }, [approvedActiveRiders]);
 
   const totalCodBalance = useMemo(() => {
     return codAccounts.reduce((sum, account) => {
@@ -1391,6 +1739,42 @@ export function Admin() {
     }
   };
 
+  const handleRiderStatusChange = async (
+    riderId: string,
+    nextStatus: RiderStatus
+  ) => {
+    try {
+      await updateRiderStatus(riderId, nextStatus);
+      setActionError('');
+    } catch (error) {
+      console.error('[Admin] rider status update failed', error);
+      setActionError(
+        'Unable to update rider status. Please check Firebase permissions.'
+      );
+    }
+  };
+
+  const handleAssignRider = async (booking: Booking, riderAuthUid: string) => {
+    const rider = riderLookup.get(riderAuthUid);
+    if (!rider || !rider.authUid) {
+      setActionError('Selected rider does not have an active login.');
+      return;
+    }
+    try {
+      await updateBookingAssignment(booking.trackingId, {
+        riderId: rider.authUid,
+        riderName: rider.fullName,
+        riderCity: rider.city
+      });
+      setActionError('');
+    } catch (error) {
+      console.error('[Admin] assign rider failed', error);
+      setActionError(
+        'Unable to assign rider. Please check Firebase permissions.'
+      );
+    }
+  };
+
   const handleApproveFundRequest = async (request: FundRequest) => {
     try {
       const approvedAt = new Date().toISOString();
@@ -1451,6 +1835,11 @@ export function Admin() {
     setSelectedAccountId(null);
   };
 
+  const handleRiderClear = async () => {
+    await clearRiders();
+    setRiders([]);
+  };
+
   const handleCopy = async (value: string) => {
     const doFallbackCopy = () => {
       const textarea = document.createElement('textarea');
@@ -1488,7 +1877,7 @@ export function Admin() {
 
   return (
     <div
-      className="admin-ui min-h-screen bg-gradient-to-b from-slate-50 via-slate-50 to-slate-100/70 text-slate-900 antialiased"
+      className="admin-ui min-h-screen overflow-x-hidden bg-gradient-to-b from-slate-50 via-slate-50 to-slate-100/70 text-slate-900 antialiased"
       style={{ fontFamily: "'Poppins', 'Inter', system-ui, sans-serif" }}>
       <aside className="hidden lg:flex fixed inset-y-0 left-0 w-64 flex-col bg-[#0F172A] text-slate-200">
         <div className="px-6 py-6 flex items-center gap-3">
@@ -1516,6 +1905,26 @@ export function Admin() {
             }`}>
             <Truck className="h-4 w-4" />
             Non COD
+          </button>
+          <button
+            onClick={() => setActivePanel('riders')}
+            className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition-colors ${
+              activePanel === 'riders'
+                ? 'bg-white/10 text-white'
+                : 'text-white hover:bg-white/5'
+            }`}>
+            <UserCircle2 className="h-4 w-4" />
+            Riders
+          </button>
+          <button
+            onClick={() => setActivePanel('receipts')}
+            className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition-colors ${
+              activePanel === 'receipts'
+                ? 'bg-white/10 text-white'
+                : 'text-white hover:bg-white/5'
+            }`}>
+            <FileText className="h-4 w-4" />
+            Delivery Receipts
           </button>
           <button
             onClick={() => setActivePanel('slips')}
@@ -1550,6 +1959,10 @@ export function Admin() {
                 value={
                   activePanel === 'cod'
                     ? codQuery
+                    : activePanel === 'riders'
+                      ? riderQuery
+                      : activePanel === 'receipts'
+                        ? receiptQuery
                     : activePanel === 'slips'
                       ? slipQuery
                       : activePanel === 'complaints'
@@ -1559,6 +1972,10 @@ export function Admin() {
                 onChange={(e) =>
                   activePanel === 'cod'
                     ? setCodQuery(e.target.value)
+                    : activePanel === 'riders'
+                      ? setRiderQuery(e.target.value)
+                      : activePanel === 'receipts'
+                        ? setReceiptQuery(e.target.value)
                     : activePanel === 'slips'
                       ? setSlipQuery(e.target.value)
                       : activePanel === 'complaints'
@@ -1568,6 +1985,10 @@ export function Admin() {
                 placeholder={
                   activePanel === 'cod'
                     ? 'Search merchants, email, phone...'
+                    : activePanel === 'riders'
+                      ? 'Search riders, CNIC, phone...'
+                      : activePanel === 'receipts'
+                        ? 'Search receipts, tracking, rider, receiver...'
                     : activePanel === 'slips'
                       ? 'Search slips, tracking, sender, receiver...'
                       : activePanel === 'complaints'
@@ -1585,17 +2006,19 @@ export function Admin() {
           </div>
         </header>
 
-        <main className="px-4 sm:px-6 lg:px-10 py-8 space-y-8">
+        <main className="px-3 sm:px-6 lg:px-10 py-6 sm:py-8 space-y-6 sm:space-y-8 break-words">
           {(bookingsLoadError ||
             codAccountsLoadError ||
             fundRequestsLoadError ||
             complaintsLoadError ||
+            ridersLoadError ||
             actionError) && (
             <section className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm">
               {bookingsLoadError && <div>{bookingsLoadError}</div>}
               {codAccountsLoadError && <div>{codAccountsLoadError}</div>}
               {fundRequestsLoadError && <div>{fundRequestsLoadError}</div>}
               {complaintsLoadError && <div>{complaintsLoadError}</div>}
+              {ridersLoadError && <div>{ridersLoadError}</div>}
               {actionError && <div>{actionError}</div>}
             </section>
           )}
@@ -1634,17 +2057,6 @@ export function Admin() {
             </section>
           )}
           <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">
-                Courier Admin
-              </p>
-              <h1 className="text-3xl lg:text-4xl font-semibold text-slate-900 mt-2">
-                Premium Logistics Dashboard
-              </h1>
-              <p className="text-sm text-slate-500 mt-2">
-                Monitor merchants, approvals, and daily operations in real time.
-              </p>
-            </div>
             <div className="flex flex-wrap items-center gap-3">
               {activePanel === 'cod' ? (
                 <button
@@ -1659,6 +2071,20 @@ export function Admin() {
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition-colors text-sm font-semibold shadow-lg shadow-slate-900/10">
                   <Trash2 className="w-4 h-4" />
                   Clear Bookings
+                </button>
+              ) : activePanel === 'riders' ? (
+                <button
+                  onClick={() =>
+                    requestConfirm(
+                      'Clear Riders',
+                      'This will permanently delete all rider applications.',
+                      handleRiderClear,
+                      'Clear Riders'
+                    )
+                  }
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition-colors text-sm font-semibold shadow-lg shadow-slate-900/10">
+                  <Trash2 className="w-4 h-4" />
+                  Clear Riders
                 </button>
               ) : null}
             <button
@@ -1680,10 +2106,10 @@ export function Admin() {
             </section>
           )}
 
-          <div className="lg:hidden inline-flex flex-wrap gap-2 rounded-full border border-slate-200 bg-white/80 p-1 shadow-sm">
+          <div className="lg:hidden grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white/80 p-2 shadow-sm">
             <button
               onClick={() => setActivePanel('cod')}
-              className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+              className={`w-full px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
                 activePanel === 'cod'
                   ? 'bg-slate-900 text-white'
                   : 'text-slate-600 hover:bg-slate-100'
@@ -1692,7 +2118,7 @@ export function Admin() {
             </button>
             <button
               onClick={() => setActivePanel('bookings')}
-              className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+              className={`w-full px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
                 activePanel === 'bookings'
                   ? 'bg-slate-900 text-white'
                   : 'text-slate-600 hover:bg-slate-100'
@@ -1700,8 +2126,26 @@ export function Admin() {
               Non COD
             </button>
             <button
+              onClick={() => setActivePanel('riders')}
+              className={`w-full px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                activePanel === 'riders'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}>
+              Riders
+            </button>
+            <button
+              onClick={() => setActivePanel('receipts')}
+              className={`w-full px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                activePanel === 'receipts'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}>
+              Receipts
+            </button>
+            <button
               onClick={() => setActivePanel('slips')}
-              className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+              className={`w-full px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
                 activePanel === 'slips'
                   ? 'bg-slate-900 text-white'
                   : 'text-slate-600 hover:bg-slate-100'
@@ -1710,7 +2154,7 @@ export function Admin() {
             </button>
             <button
               onClick={() => setActivePanel('complaints')}
-              className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+              className={`w-full px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
                 activePanel === 'complaints'
                   ? 'bg-slate-900 text-white'
                   : 'text-slate-600 hover:bg-slate-100'
@@ -2456,6 +2900,16 @@ export function Admin() {
                         const totalAmount =
                           booking.shippingCharge ??
                           baseRate + extraCharge + outCityCharge;
+                        const bookingCity = normalizeCity(
+                          booking.receiverCity || booking.senderCity
+                        );
+                        const matchingRiders = approvedActiveRiders.filter(
+                          (rider) => normalizeCity(rider.city) === bookingCity
+                        );
+                        const riderOptions =
+                          matchingRiders.length > 0
+                            ? matchingRiders
+                            : approvedActiveRiders;
                         return (
                           <div
                             key={booking.trackingId}
@@ -2591,6 +3045,49 @@ export function Admin() {
                               </select>
                             </div>
 
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-sm">
+                              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                                Assigned Rider
+                              </p>
+                              <p className="text-sm font-semibold text-slate-900 mt-2">
+                                {booking.assignedRiderName || 'Not assigned'}
+                              </p>
+                              <p className="text-xs text-slate-500">
+                                {booking.assignedRiderCity || booking.receiverCity || '-'}
+                              </p>
+                              {riderOptions.length > 0 ? (
+                                <div className="mt-3">
+                                  <select
+                                    value={booking.assignedRiderId || ''}
+                                    onChange={(e) => {
+                                      const riderAuthUid = e.target.value;
+                                      if (!riderAuthUid) return;
+                                      handleAssignRider(booking, riderAuthUid);
+                                    }}
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+                                    <option value="">Assign rider</option>
+                                    {riderOptions.map((rider) => (
+                                      <option
+                                        key={rider.authUid || rider.id}
+                                        value={rider.authUid || ''}>
+                                        {rider.fullName} • {rider.city}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {matchingRiders.length === 0 && (
+                                    <p className="text-xs text-slate-500 mt-2">
+                                      No rider found in the same city. Showing all
+                                      approved riders.
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-slate-500 mt-2">
+                                  No approved riders with active login yet.
+                                </p>
+                              )}
+                            </div>
+
                             {booking.status === 'delivery_rejected' &&
                               booking.rejectionReason && (
                                 <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-700">
@@ -2613,20 +3110,127 @@ export function Admin() {
             <>
               <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">
-                    COD Dashboard
-                  </p>
-                  <h2 className="text-3xl lg:text-4xl font-semibold text-slate-900 mt-2">
-                    COD Control Center
-                  </h2>
-                  <p className="text-sm text-slate-500 mt-2">
-                    Manage COD merchants, approvals, and settlement activity.
-                  </p>
+                  {provinceParam ? (
+                    <>
+                      <button
+                        onClick={() => {
+                          setCodProvinceFilter('all');
+                          setCodStatusFilter('all');
+                          navigate('/admin?tab=cod');
+                        }}
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-800">
+                        <ArrowLeft className="h-4 w-4" />
+                        Back to COD Dashboard
+                      </button>
+                      <h2 className="text-3xl lg:text-4xl font-semibold text-slate-900 mt-3">
+                        {provinceParam === 'punjab'
+                          ? 'Punjab Customers'
+                          : provinceParam === 'sindh'
+                            ? 'Sindh Customers'
+                            : provinceParam === 'kpk'
+                              ? 'KP Customers'
+                              : 'Balochistan Customers'}
+                      </h2>
+                      <p className="text-sm text-slate-500 mt-2">
+                        View and approve COD accounts for this province.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <h2 className="text-3xl lg:text-4xl font-semibold text-slate-900 mt-2">
+                        COD Control Center
+                      </h2>
+                      <p className="text-sm text-slate-500 mt-2">
+                        Manage COD merchants, approvals, and settlement activity.
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
+
+              {!provinceParam && (
+                <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  {[
+                    {
+                      key: 'punjab',
+                      label: 'Punjab Customers',
+                      count: codProvinceCounts.punjab,
+                      pending: codProvincePendingCounts.punjab,
+                      className:
+                        'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    },
+                    {
+                      key: 'sindh',
+                      label: 'Sindh Customers',
+                      count: codProvinceCounts.sindh,
+                      pending: codProvincePendingCounts.sindh,
+                      className:
+                        'border-blue-200 bg-blue-50 text-blue-700'
+                    },
+                    {
+                      key: 'kpk',
+                      label: 'KP Customers',
+                      count: codProvinceCounts.kpk,
+                      pending: codProvincePendingCounts.kpk,
+                      className:
+                        'border-amber-200 bg-amber-50 text-amber-700'
+                    },
+                    {
+                      key: 'balochistan',
+                      label: 'Balochistan Customers',
+                      count: codProvinceCounts.balochistan,
+                      pending: codProvincePendingCounts.balochistan,
+                      className:
+                        'border-rose-200 bg-rose-50 text-rose-700'
+                    }
+                  ].map((item) => (
+                    <button
+                      key={item.key}
+                      onClick={() => {
+                        setCodProvinceFilter(item.key as typeof codProvinceFilter);
+                        setSelectedAccountId(null);
+                        if (item.pending > 0) {
+                          setCodStatusFilter('pending');
+                        }
+                        const params = new URLSearchParams();
+                        params.set('tab', 'cod');
+                        params.set('province', item.key);
+                        if (item.pending > 0) {
+                          params.set('status', 'pending');
+                        }
+                        navigate(`/admin?${params.toString()}`);
+                      }}
+                      className={`rounded-2xl border p-4 text-left transition-all hover:-translate-y-1 ${
+                        codProvinceFilter === item.key
+                          ? 'shadow-lg shadow-slate-900/10 ring-2 ring-slate-900/10'
+                          : 'shadow-sm'
+                      } ${item.className}`}>
+                      {item.pending > 0 && (
+                        <div className="flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-[0.2em]">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                            <span className="relative flex h-2 w-2">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-500 opacity-60"></span>
+                              <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-600"></span>
+                            </span>
+                            Pending {item.pending}
+                          </span>
+                          <span className="text-[10px] text-slate-600">
+                            Click to review
+                          </span>
+                        </div>
+                      )}
+                      <div className="text-xs uppercase tracking-[0.2em]">
+                        {item.label}
+                      </div>
+                      <div className="text-2xl font-semibold mt-2">
+                        {item.count}
+                      </div>
+                    </button>
+                  ))}
+                </section>
+              )}
               <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
                 <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm transition hover:shadow-lg hover:-translate-y-1 animate-fade-up">
-                  <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-900/10" />
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
@@ -2646,7 +3250,6 @@ export function Admin() {
                 </div>
 
                 <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm transition hover:shadow-lg hover:-translate-y-1 animate-fade-up">
-                  <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-emerald-500/10" />
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
@@ -2666,7 +3269,6 @@ export function Admin() {
                 </div>
 
                 <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm transition hover:shadow-lg hover:-translate-y-1 animate-fade-up">
-                  <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-amber-400/15" />
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
@@ -2686,7 +3288,6 @@ export function Admin() {
                 </div>
 
                 <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm transition hover:shadow-lg hover:-translate-y-1 animate-fade-up">
-                  <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-emerald-500/15" />
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
@@ -2868,8 +3469,27 @@ export function Admin() {
               </section>
 
               <section className="rounded-2xl border border-slate-200 bg-white/70 backdrop-blur p-4 shadow-sm">
-                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <div className="grid gap-3 sm:grid-cols-2 lg:flex lg:items-center">
+                  <div className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
+                    Province
+                    <select
+                      value={codProvinceFilter}
+                      onChange={(e) => {
+                        const next = e.target.value as typeof codProvinceFilter;
+                        setCodProvinceFilter(next);
+                        if (next !== 'all') {
+                          setCodCityFilter('all');
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      <option value="all">All</option>
+                      <option value="punjab">Punjab</option>
+                      <option value="sindh">Sindh</option>
+                      <option value="kpk">KP</option>
+                      <option value="balochistan">Balochistan</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
                     Status
                     <select
                       value={codStatusFilter}
@@ -2883,11 +3503,16 @@ export function Admin() {
                       ))}
                     </select>
                   </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <div className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
                     City
                     <select
                       value={codCityFilter}
-                      onChange={(e) => setCodCityFilter(e.target.value)}
+                      onChange={(e) => {
+                        setCodCityFilter(e.target.value);
+                        if (e.target.value !== 'all') {
+                          setCodProvinceFilter('all');
+                        }
+                      }}
                       className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                       <option value="all">All</option>
                       {SERVICE_CITIES.map((city) => (
@@ -3297,6 +3922,14 @@ export function Admin() {
                   const extraCharge = extraKg * rate.additionalPerKg;
                   const outCityCharge = booking.outOfCity ? 200 : 0;
                   const totalAmount = baseRate + extraCharge + outCityCharge;
+                  const bookingCity = normalizeCity(
+                    booking.receiverCity || booking.senderCity
+                  );
+                  const matchingRiders = approvedActiveRiders.filter(
+                    (rider) => normalizeCity(rider.city) === bookingCity
+                  );
+                  const riderOptions =
+                    matchingRiders.length > 0 ? matchingRiders : approvedActiveRiders;
                   return (
                     <div
                       key={booking.trackingId}
@@ -3461,6 +4094,436 @@ export function Admin() {
                 })}
               </section>
             </>
+          ) : activePanel === 'riders' ? (
+            <>
+              <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">
+                    Rider Management
+                  </p>
+                  <h2 className="text-3xl lg:text-4xl font-semibold text-slate-900 mt-2">
+                    Rider Applications
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-2">
+                    Review rider signups, approve accounts, and monitor workloads.
+                  </p>
+                </div>
+                <div className="text-sm text-slate-500">
+                  Total riders: {riderCounts.all}
+                </div>
+              </div>
+
+              <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  { key: 'all', label: 'All', count: riderCounts.all },
+                  { key: 'pending', label: 'Pending', count: riderCounts.pending },
+                  { key: 'approved', label: 'Approved', count: riderCounts.approved },
+                  { key: 'rejected', label: 'Rejected', count: riderCounts.rejected }
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    onClick={() => setRiderStatusFilter(item.key)}
+                    className={`rounded-2xl border p-4 text-left transition-all hover:-translate-y-1 ${
+                      riderStatusFilter === item.key
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-lg shadow-slate-900/10'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
+                    }`}>
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                      {item.label}
+                    </div>
+                    <div className="text-2xl font-semibold mt-2">
+                      {item.count ?? 0}
+                    </div>
+                  </button>
+                ))}
+              </section>
+
+              <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  {
+                    key: 'punjab',
+                    label: 'Punjab Riders',
+                    count: riderProvinceCounts.punjab,
+                    className:
+                      'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  },
+                  {
+                    key: 'sindh',
+                    label: 'Sindh Riders',
+                    count: riderProvinceCounts.sindh,
+                    className:
+                      'border-blue-200 bg-blue-50 text-blue-700'
+                  },
+                  {
+                    key: 'kpk',
+                    label: 'KP Riders',
+                    count: riderProvinceCounts.kpk,
+                    className:
+                      'border-amber-200 bg-amber-50 text-amber-700'
+                  },
+                  {
+                    key: 'balochistan',
+                    label: 'Balochistan Riders',
+                    count: riderProvinceCounts.balochistan,
+                    className:
+                      'border-rose-200 bg-rose-50 text-rose-700'
+                  }
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    onClick={() => {
+                      setRiderProvinceFilter(item.key as typeof riderProvinceFilter);
+                      setRiderCityFilter('all');
+                    }}
+                    className={`rounded-2xl border p-4 text-left transition-all hover:-translate-y-1 ${
+                      riderProvinceFilter === item.key
+                        ? 'shadow-lg shadow-slate-900/10 ring-2 ring-slate-900/10'
+                        : 'shadow-sm'
+                    } ${item.className}`}>
+                    <div className="text-xs uppercase tracking-[0.2em]">
+                      {item.label}
+                    </div>
+                    <div className="text-2xl font-semibold mt-2">
+                      {item.count}
+                    </div>
+                  </button>
+                ))}
+              </section>
+
+              <section className="rounded-2xl border border-slate-200 bg-white/70 backdrop-blur p-4 shadow-sm">
+                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    Province
+                    <select
+                      value={riderProvinceFilter}
+                      onChange={(e) => {
+                        const next = e.target.value as typeof riderProvinceFilter;
+                        setRiderProvinceFilter(next);
+                        if (next !== 'all') {
+                          setRiderCityFilter('all');
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      <option value="all">All</option>
+                      <option value="punjab">Punjab</option>
+                      <option value="sindh">Sindh</option>
+                      <option value="kpk">KP</option>
+                      <option value="balochistan">Balochistan</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    Status
+                    <select
+                      value={riderStatusFilter}
+                      onChange={(e) => setRiderStatusFilter(e.target.value)}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      <option value="all">All</option>
+                      {riderStatusOptions.map((status) => (
+                        <option key={status.key} value={status.key}>
+                          {status.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    City
+                    <select
+                      value={riderCityFilter}
+                      onChange={(e) => {
+                        setRiderCityFilter(e.target.value);
+                        if (e.target.value !== 'all') {
+                          setRiderProvinceFilter('all');
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      <option value="all">All</option>
+                      {riderCityOptions.map((city) => (
+                        <option key={city} value={city}>
+                          {city}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+              {filteredRiders.length === 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 text-center text-slate-600">
+                  No riders found for this filter.
+                </div>
+              )}
+
+              <section className="grid gap-6 md:grid-cols-2">
+                {filteredRiders.map((rider) => {
+                  const stats =
+                    (rider.authUid && riderStats[rider.authUid]) || {
+                      total: 0,
+                      delivered: 0,
+                      pending: 0
+                    };
+                  return (
+                    <div
+                      key={rider.id}
+                      className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm space-y-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Rider
+                          </p>
+                          <h3 className="text-lg font-semibold text-slate-900 mt-2">
+                            {rider.fullName}
+                          </h3>
+                          <p className="text-xs text-slate-500 mt-1">
+                            City: {rider.city} • Area: {rider.area}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            CNIC: {rider.cnic}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Phone: {rider.mobile}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${riderStatusBadge[rider.status]}`}>
+                            {rider.status}
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            {rider.authUid ? 'Login active' : 'Login pending'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-3 text-sm">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Assigned
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900 mt-2">
+                            {stats.total}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Delivered
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900 mt-2">
+                            {stats.delivered}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Pending
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900 mt-2">
+                            {stats.pending}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2 text-sm">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Vehicle
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900 mt-2">
+                            {rider.vehicleType} • {rider.vehicleModel}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {rider.vehicleNumber} • {rider.vehicleColor}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Emergency
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900 mt-2">
+                            {rider.emergencyName}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {rider.emergencyRelation} • {rider.emergencyPhone}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() =>
+                            handleRiderStatusChange(rider.id, 'approved')
+                          }
+                          className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-emerald-500 to-emerald-600 shadow-sm hover:shadow-md transition">
+                          Approve
+                        </button>
+                        <button
+                          onClick={() =>
+                            handleRiderStatusChange(rider.id, 'pending')
+                          }
+                          className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-amber-400 to-orange-500 shadow-sm hover:shadow-md transition">
+                          Hold
+                        </button>
+                        <button
+                          onClick={() =>
+                            handleRiderStatusChange(rider.id, 'suspended')
+                          }
+                          className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-slate-500 to-slate-700 shadow-sm hover:shadow-md transition">
+                          Suspend
+                        </button>
+                        <button
+                          onClick={() =>
+                            handleRiderStatusChange(rider.id, 'rejected')
+                          }
+                          className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-rose-500 to-red-600 shadow-sm hover:shadow-md transition">
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </section>
+            </>
+          ) : activePanel === 'receipts' ? (
+            <>
+              <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">
+                    Delivery Receipts
+                  </p>
+                  <h2 className="text-3xl lg:text-4xl font-semibold text-slate-900 mt-2">
+                    Delivered Parcels History
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-2">
+                    View rider delivery history and download parcel receipts.
+                  </p>
+                </div>
+                <div className="text-sm text-slate-500">
+                  Total receipts: {deliveryReceipts.length}
+                </div>
+              </div>
+
+              {deliveryReceipts.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 text-center text-slate-600">
+                  No delivered parcels yet.
+                </div>
+              ) : (
+                <section className="grid gap-6 md:grid-cols-2">
+                  {deliveryReceipts.map((booking) => {
+                    const statusConfig =
+                      STATUS_OPTIONS.find((s) => s.key === booking.status) ??
+                      STATUS_OPTIONS[0];
+                    const deliveredAt =
+                      booking.statusHistory[booking.statusHistory.length - 1]
+                        ?.at ?? booking.createdAt;
+                    return (
+                      <div
+                        key={booking.trackingId}
+                        className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm space-y-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Tracking ID
+                            </p>
+                            <p className="text-lg font-semibold text-slate-900 mt-2">
+                              {booking.trackingId}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">
+                              {booking.senderCity} → {booking.receiverCity}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Delivered {formatDate(deliveredAt)} {formatTime(deliveredAt)}
+                            </p>
+                          </div>
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${statusConfig.badge}`}>
+                            {statusConfig.label}
+                          </span>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2 text-sm">
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Sender
+                            </p>
+                            <p className="text-sm font-semibold text-slate-900 mt-2">
+                              {booking.senderName || '-'}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {booking.senderPhone || '-'}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {booking.senderAddress || '-'}
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Receiver
+                            </p>
+                            <p className="text-sm font-semibold text-slate-900 mt-2">
+                              {booking.receiverName || '-'}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {booking.receiverPhone || '-'}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {booking.receiverAddress || '-'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-3 text-sm">
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Parcel
+                            </p>
+                            <p className="text-sm font-semibold text-slate-900 mt-2">
+                              {booking.itemDetail || 'Parcel'}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Weight: {booking.weightKg.toFixed(3)} kg
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              COD
+                            </p>
+                            <p className="text-sm font-semibold text-slate-900 mt-2">
+                              {booking.codAmount ? `Rs. ${booking.codAmount}` : 'Rs. 0'}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Delivery Code: {booking.deliveryCode}
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Rider
+                            </p>
+                            <p className="text-sm font-semibold text-slate-900 mt-2">
+                              {booking.assignedRiderName || 'Assigned Rider'}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {booking.assignedRiderCity || '-'}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              ID: {booking.assignedRiderId || '-'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                          <div className="text-slate-600">
+                            Receipt ready for download.
+                          </div>
+                          <button
+                            onClick={() => handleDownloadSlip(booking)}
+                            className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800">
+                            Download Receipt
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </section>
+              )}
+            </>
           ) : activePanel === 'complaints' ? (
             <>
               <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
@@ -3481,7 +4544,7 @@ export function Admin() {
               </div>
 
               <section className="rounded-2xl border border-slate-200 bg-white/70 backdrop-blur p-4 shadow-sm">
-                <div className="overflow-x-auto">
+                <div className="hidden lg:block overflow-x-auto">
                   <table className="w-full min-w-[980px] text-sm">
                     <thead>
                       <tr className="text-left text-xs uppercase tracking-[0.2em] text-slate-400">
@@ -3543,6 +4606,58 @@ export function Admin() {
                       )}
                     </tbody>
                   </table>
+                </div>
+
+                <div className="grid gap-4 lg:hidden">
+                  {filteredComplaints.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Merchant
+                          </p>
+                          <p className="text-base font-semibold text-slate-900 mt-1">
+                            {entry.merchantName || 'Merchant'}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {formatDate(entry.createdAt)} {formatTime(entry.createdAt)}
+                          </p>
+                        </div>
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-semibold ${complaintPriorityBadge(
+                            entry.priority
+                          )}`}>
+                          {entry.priority}
+                        </span>
+                      </div>
+                      <div className="text-sm text-slate-600">
+                        <p className="font-semibold text-slate-800">
+                          {entry.subject}
+                        </p>
+                        <p className="mt-1">
+                          {entry.message.length > 160
+                            ? `${entry.message.slice(0, 160)}...`
+                            : entry.message}
+                        </p>
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        <div>{entry.email || '-'}</div>
+                        <div>{entry.phone || '-'}</div>
+                      </div>
+                      <button
+                        onClick={() => handleOpenMerchant(entry.accountId)}
+                        className="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800">
+                        Open Merchant
+                      </button>
+                    </div>
+                  ))}
+                  {filteredComplaints.length === 0 && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+                      No complaints submitted yet.
+                    </div>
+                  )}
                 </div>
               </section>
             </>

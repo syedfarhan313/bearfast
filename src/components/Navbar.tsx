@@ -77,6 +77,11 @@ export function Navbar() {
               Admin Panel
             </Link>
             <Link
+              to="/rider"
+              className="inline-flex items-center px-5 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-full hover:bg-slate-800 transition-colors shadow-lg shadow-slate-300">
+              Rider Panel
+            </Link>
+            <Link
               to="/cod-registration"
               className="inline-flex items-center px-5 py-2.5 bg-red-500 text-white text-sm font-semibold rounded-full hover:bg-red-600 transition-colors shadow-lg shadow-red-200">
               Registration
@@ -129,6 +134,12 @@ export function Navbar() {
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="text-center px-5 py-2.5 bg-emerald-500 text-white text-sm font-semibold rounded-full hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-200">
                 Admin Panel
+              </Link>
+              <Link
+                to="/rider"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="text-center px-5 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-full hover:bg-slate-800 transition-colors shadow-lg shadow-slate-300">
+                Rider Panel
               </Link>
               <Link
                 to="/cod-registration"

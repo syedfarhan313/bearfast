@@ -35,6 +35,10 @@ export interface Booking {
   statusHistory: StatusHistoryItem[];
   rejectionReason?: string;
   isCod?: boolean;
+  assignedRiderId?: string | null;
+  assignedRiderName?: string | null;
+  assignedRiderCity?: string | null;
+  assignedAt?: string | null;
   userId: string;
   merchantId?: string | null;
   merchantEmail?: string | null;
@@ -178,6 +182,36 @@ export const subscribeBookingsByMerchant = (
   );
 };
 
+export const subscribeBookingsByRider = (
+  riderId: string,
+  onChange: (items: Booking[]) => void,
+  onError?: (error: Error) => void
+) => {
+  if (!riderId) {
+    onChange([]);
+    return () => {};
+  }
+  const q = query(
+    collection(db, COLLECTION),
+    where('assignedRiderId', '==', riderId)
+  );
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const next = snapshot.docs.map((docSnap) => mapDoc(docSnap));
+      next.sort((a, b) => {
+        const aTime = new Date(a.createdAt).getTime();
+        const bTime = new Date(b.createdAt).getTime();
+        return bTime - aTime;
+      });
+      onChange(next);
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
+};
+
 export const subscribeBooking = (
   trackingId: string,
   onChange: (item: Booking | null) => void,
@@ -237,6 +271,23 @@ export const updateBookingStatus = async (
     updates.rejectionReason = '';
   }
   await updateDoc(ref, updates);
+};
+
+export const updateBookingAssignment = async (
+  trackingId: string,
+  assignment: {
+    riderId: string;
+    riderName: string;
+    riderCity: string;
+  }
+) => {
+  const ref = doc(db, COLLECTION, trackingId);
+  await updateDoc(ref, {
+    assignedRiderId: assignment.riderId,
+    assignedRiderName: assignment.riderName,
+    assignedRiderCity: assignment.riderCity,
+    assignedAt: new Date().toISOString()
+  });
 };
 
 export const deleteAllBookings = async () => {

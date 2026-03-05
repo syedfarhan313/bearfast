@@ -24,6 +24,11 @@ export function Home() {
       <section className="relative min-h-screen flex items-center overflow-hidden">
         {/* Mobile Background */}
         <div className="absolute inset-0 bg-gradient-to-b from-white via-slate-50 to-slate-200 lg:hidden" />
+        <div className="absolute inset-0 lg:hidden">
+          <div className="absolute -top-12 -left-10 h-56 w-56 rounded-full bg-orange-300/30 blur-3xl animate-pulse" />
+          <div className="absolute bottom-8 -right-12 h-64 w-64 rounded-full bg-slate-900/20 blur-3xl animate-pulse [animation-delay:0.6s]" />
+          <div className="absolute top-1/3 left-1/2 h-28 w-28 -translate-x-1/2 rounded-full border border-white/60 animate-pulse-ring" />
+        </div>
         {/* Diagonal Background */}
         <div
           className="absolute inset-0 bg-white hidden lg:block"
@@ -87,17 +92,6 @@ export function Home() {
               strokeWidth="3" />
 
           </svg>
-        </div>
-
-        {/* 24HR Badge */}
-        <div className="absolute right-20 top-1/3 hidden lg:block z-10">
-          <div className="text-center">
-            <div className="text-8xl font-black text-orange-500">24</div>
-            <div className="text-3xl font-black text-orange-500 -mt-2">HR</div>
-            <div className="text-white text-sm font-medium mt-2">
-              Express Delivery
-            </div>
-          </div>
         </div>
 
         {/* Content */}
