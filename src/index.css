@@ -98,6 +98,12 @@ body {
   display: none;
 }
 
+@media (max-width: 1024px) {
+  .hide-floating-whatsapp-mobile .floating-whatsapp {
+    display: none;
+  }
+}
+
 .btn-ripple {
   position: relative;
   overflow: hidden;

@@ -12,7 +12,6 @@ import {
   isCodBooking,
   deleteAllBookings,
   subscribeBookings,
-  updateBookingStatus,
   updateBookingAssignment
 } from '../utils/bookingStore';
 import {
@@ -56,6 +55,7 @@ import {
   Clock,
   FileText,
   Edit3,
+  History,
   LayoutGrid,
   Lock,
   Mail,
@@ -145,6 +145,15 @@ const getProvinceFromCity = (city?: string | null) => {
   return 'other';
 };
 
+const buildEmptyStatusCounts = () =>
+  STATUS_OPTIONS.reduce(
+    (acc, item) => {
+      acc[item.key] = 0;
+      return acc;
+    },
+    {} as Record<BookingStatusKey, number>
+  );
+
 export function Admin() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -152,11 +161,14 @@ export function Admin() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [query, setQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string>('');
-  const [rejectionTarget, setRejectionTarget] = useState<string | null>(null);
-  const [rejectionReason, setRejectionReason] = useState('');
-  const [rejectionError, setRejectionError] = useState('');
   const [activePanel, setActivePanel] = useState<
-    'bookings' | 'cod' | 'slips' | 'complaints' | 'riders' | 'receipts'
+    | 'bookings'
+    | 'cod'
+    | 'slips'
+    | 'complaints'
+    | 'riders'
+    | 'receipts'
+    | 'rider-history'
   >('cod');
   const [codAccounts, setCodAccounts] = useState<CodAccountRequest[]>([]);
   const [codStatusFilter, setCodStatusFilter] = useState<string>('all');
@@ -305,6 +317,26 @@ export function Admin() {
     if (Number.isNaN(parsed.getTime())) return '-';
     return `${formatDate(value)} ${formatTime(value)}`;
   };
+  const summarizeRiderStats = (
+    stats?: { total: number; byStatus: Record<BookingStatusKey, number> }
+  ) => {
+    const base = buildEmptyStatusCounts();
+    const byStatus = stats?.byStatus ? { ...base, ...stats.byStatus } : base;
+    const delivered = (byStatus.delivered || 0) + (byStatus.payment_received || 0);
+    const inTransit =
+      (byStatus.confirmed || 0) +
+      (byStatus.in_transit || 0) +
+      (byStatus.out_for_delivery || 0);
+    const pending = byStatus.pending || 0;
+    const rejected = byStatus.delivery_rejected || 0;
+    return {
+      total: stats?.total ?? 0,
+      delivered,
+      inTransit,
+      pending,
+      rejected
+    };
+  };
   const getNotificationKey = (
     notice: Partial<typeof liveNotifications[number]>
   ) => {
@@ -378,12 +410,6 @@ export function Admin() {
   };
   const normalizeCity = (value?: string | null) =>
     (value || '').trim().toLowerCase();
-  const bookingStatusBadge = (status: BookingStatusKey) =>
-    STATUS_OPTIONS.find((item) => item.key === status)?.badge ||
-    'bg-slate-100 text-slate-700';
-  const bookingStatusLabel = (status: BookingStatusKey) =>
-    STATUS_OPTIONS.find((item) => item.key === status)?.label ??
-    status.replace(/_/g, ' ');
   const buildSparklinePoints = (series: number[], height = 36) => {
     if (!series.length) return '';
     const max = Math.max(...series, 1);
@@ -907,6 +933,9 @@ export function Admin() {
     if (params.get('tab') === 'receipts') {
       setActivePanel('receipts');
     }
+    if (params.get('tab') === 'rider-history') {
+      setActivePanel('rider-history');
+    }
     if (params.get('tab') === 'cod') {
       const province = params.get('province');
       if (
@@ -1184,23 +1213,72 @@ export function Admin() {
   const riderStats = useMemo(() => {
     const stats: Record<
       string,
-      { total: number; delivered: number; pending: number }
+      { total: number; byStatus: Record<BookingStatusKey, number> }
     > = {};
     bookings.forEach((booking) => {
       if (!booking.assignedRiderId) return;
       if (!stats[booking.assignedRiderId]) {
-        stats[booking.assignedRiderId] = { total: 0, delivered: 0, pending: 0 };
+        stats[booking.assignedRiderId] = {
+          total: 0,
+          byStatus: buildEmptyStatusCounts()
+        };
       }
       const bucket = stats[booking.assignedRiderId];
       bucket.total += 1;
-      if (booking.status === 'delivered') {
-        bucket.delivered += 1;
-      } else {
-        bucket.pending += 1;
-      }
+      bucket.byStatus[booking.status] =
+        (bucket.byStatus[booking.status] || 0) + 1;
     });
     return stats;
   }, [bookings]);
+
+  const riderBookingMap = useMemo(() => {
+    const map = new Map<string, Booking[]>();
+    bookings.forEach((booking) => {
+      if (!booking.assignedRiderId) return;
+      if (!map.has(booking.assignedRiderId)) {
+        map.set(booking.assignedRiderId, []);
+      }
+      map.get(booking.assignedRiderId)?.push(booking);
+    });
+    map.forEach((items) => {
+      items.sort((a, b) => {
+        const aTime = new Date(a.createdAt).getTime();
+        const bTime = new Date(b.createdAt).getTime();
+        return bTime - aTime;
+      });
+    });
+    return map;
+  }, [bookings]);
+
+  const riderHistorySummary = useMemo(() => {
+    const totals = {
+      assigned: 0,
+      delivered: 0,
+      inTransit: 0,
+      pending: 0,
+      rejected: 0
+    };
+    Object.values(riderStats).forEach((stats) => {
+      const summary = summarizeRiderStats(stats);
+      totals.assigned += summary.total;
+      totals.delivered += summary.delivered;
+      totals.inTransit += summary.inTransit;
+      totals.pending += summary.pending;
+      totals.rejected += summary.rejected;
+    });
+    return totals;
+  }, [riderStats]);
+
+  const riderHistoryRows = useMemo(() => {
+    return filteredRiders.map((rider) => {
+      const stats = rider.authUid ? riderStats[rider.authUid] : undefined;
+      const summary = summarizeRiderStats(stats);
+      const lastAssigned = rider.authUid
+        ? riderBookingMap.get(rider.authUid)?.[0]?.createdAt
+        : undefined;
+      return { rider, summary, lastAssigned };
+    });
+  }, [filteredRiders, riderStats, riderBookingMap]);
 
   const approvedActiveRiders = useMemo(
     () => riders.filter((rider) => rider.status === 'approved' && rider.authUid),
@@ -1706,19 +1784,6 @@ export function Admin() {
     setConfirmAction({ title, description, onConfirm, confirmLabel });
   };
 
-  const handleStatusChange = async (
-    booking: Booking,
-    nextStatus: BookingStatusKey
-  ) => {
-    if (nextStatus === 'delivery_rejected') {
-      setRejectionTarget(booking.trackingId);
-      setRejectionReason(booking.rejectionReason || '');
-      setRejectionError('');
-      return;
-    }
-    await updateBookingStatus(booking.trackingId, nextStatus);
-  };
-
   const handleCodStatusChange = async (
     accountId: string,
     nextStatus: CodAccountStatus
@@ -1803,25 +1868,6 @@ export function Admin() {
       'Fund request rejected',
       `Rs. ${formatAmount(request.amount)}`
     );
-  };
-
-  const handleRejectSave = async () => {
-    if (!rejectionTarget) return;
-    const reason = rejectionReason.trim();
-    if (!reason) {
-      setRejectionError('Please add a rejection reason.');
-      return;
-    }
-    await updateBookingStatus(rejectionTarget, 'delivery_rejected', reason);
-    setRejectionTarget(null);
-    setRejectionReason('');
-    setRejectionError('');
-  };
-
-  const handleRejectCancel = () => {
-    setRejectionTarget(null);
-    setRejectionReason('');
-    setRejectionError('');
   };
 
   const handleClear = async () => {
@@ -1946,6 +1992,16 @@ export function Admin() {
             <MessageSquare className="h-4 w-4" />
             Complaints
           </button>
+          <button
+            onClick={() => setActivePanel('rider-history')}
+            className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition-colors ${
+              activePanel === 'rider-history'
+                ? 'bg-white/10 text-white'
+                : 'text-white hover:bg-white/5'
+            }`}>
+            <History className="h-4 w-4" />
+            Rider History
+          </button>
         </nav>
       </aside>
 
@@ -1959,7 +2015,7 @@ export function Admin() {
                 value={
                   activePanel === 'cod'
                     ? codQuery
-                    : activePanel === 'riders'
+                    : activePanel === 'riders' || activePanel === 'rider-history'
                       ? riderQuery
                       : activePanel === 'receipts'
                         ? receiptQuery
@@ -1972,7 +2028,7 @@ export function Admin() {
                 onChange={(e) =>
                   activePanel === 'cod'
                     ? setCodQuery(e.target.value)
-                    : activePanel === 'riders'
+                    : activePanel === 'riders' || activePanel === 'rider-history'
                       ? setRiderQuery(e.target.value)
                       : activePanel === 'receipts'
                         ? setReceiptQuery(e.target.value)
@@ -1985,7 +2041,7 @@ export function Admin() {
                 placeholder={
                   activePanel === 'cod'
                     ? 'Search merchants, email, phone...'
-                    : activePanel === 'riders'
+                    : activePanel === 'riders' || activePanel === 'rider-history'
                       ? 'Search riders, CNIC, phone...'
                       : activePanel === 'receipts'
                         ? 'Search receipts, tracking, rider, receiver...'
@@ -2106,61 +2162,33 @@ export function Admin() {
             </section>
           )}
 
-          <div className="lg:hidden grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white/80 p-2 shadow-sm">
-            <button
-              onClick={() => setActivePanel('cod')}
-              className={`w-full px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                activePanel === 'cod'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}>
-              COD Accounts
-            </button>
-            <button
-              onClick={() => setActivePanel('bookings')}
-              className={`w-full px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                activePanel === 'bookings'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}>
-              Non COD
-            </button>
-            <button
-              onClick={() => setActivePanel('riders')}
-              className={`w-full px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                activePanel === 'riders'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}>
-              Riders
-            </button>
-            <button
-              onClick={() => setActivePanel('receipts')}
-              className={`w-full px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                activePanel === 'receipts'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}>
-              Receipts
-            </button>
-            <button
-              onClick={() => setActivePanel('slips')}
-              className={`w-full px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                activePanel === 'slips'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}>
-              Booking Slip
-            </button>
-            <button
-              onClick={() => setActivePanel('complaints')}
-              className={`w-full px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                activePanel === 'complaints'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}>
-              Complaints
-            </button>
+          <div className="lg:hidden grid grid-cols-4 sm:grid-cols-7 gap-2 rounded-2xl border border-slate-200 bg-white/80 p-2 shadow-sm">
+            {[
+              { key: 'cod', label: 'COD', icon: Users },
+              { key: 'bookings', label: 'Non COD', icon: Truck },
+              { key: 'riders', label: 'Riders', icon: UserCircle2 },
+              { key: 'receipts', label: 'Receipts', icon: FileText },
+              { key: 'slips', label: 'Slips', icon: FileText },
+              { key: 'complaints', label: 'Complaints', icon: MessageSquare },
+              { key: 'rider-history', label: 'History', icon: History }
+            ].map((item) => {
+              const isActive = activePanel === item.key;
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => setActivePanel(item.key as typeof activePanel)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold transition ${
+                    isActive
+                      ? 'bg-gradient-to-r from-slate-900 to-slate-800 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}>
+                  <Icon className="h-4 w-4" />
+                  <span className="leading-none">{item.label}</span>
+                </button>
+              );
+            })}
           </div>
           {activePanel === 'cod' ? (
             selectedAccount ? (
@@ -2900,16 +2928,7 @@ export function Admin() {
                         const totalAmount =
                           booking.shippingCharge ??
                           baseRate + extraCharge + outCityCharge;
-                        const bookingCity = normalizeCity(
-                          booking.receiverCity || booking.senderCity
-                        );
-                        const matchingRiders = approvedActiveRiders.filter(
-                          (rider) => normalizeCity(rider.city) === bookingCity
-                        );
-                        const riderOptions =
-                          matchingRiders.length > 0
-                            ? matchingRiders
-                            : approvedActiveRiders;
+                        const riderOptions = approvedActiveRiders;
                         return (
                           <div
                             key={booking.trackingId}
@@ -3028,21 +3047,15 @@ export function Admin() {
                                   {booking.deliveryCode}
                                 </span>
                               </div>
-                              <select
-                                value={booking.status}
-                                onChange={(e) =>
-                                  handleStatusChange(
-                                    booking,
-                                    e.target.value as BookingStatusKey
-                                  )
-                                }
-                                className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-                                {STATUS_OPTIONS.map((status) => (
-                                  <option key={status.key} value={status.key}>
-                                    {status.label}
-                                  </option>
-                                ))}
-                              </select>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`px-3 py-2 rounded-xl text-xs font-semibold ${statusConfig.badge}`}>
+                                  {statusConfig.label}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  Rider controlled
+                                </span>
+                              </div>
                             </div>
 
                             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-sm">
@@ -3074,12 +3087,6 @@ export function Admin() {
                                       </option>
                                     ))}
                                   </select>
-                                  {matchingRiders.length === 0 && (
-                                    <p className="text-xs text-slate-500 mt-2">
-                                      No rider found in the same city. Showing all
-                                      approved riders.
-                                    </p>
-                                  )}
                                 </div>
                               ) : (
                                 <p className="text-xs text-slate-500 mt-2">
@@ -3922,14 +3929,7 @@ export function Admin() {
                   const extraCharge = extraKg * rate.additionalPerKg;
                   const outCityCharge = booking.outOfCity ? 200 : 0;
                   const totalAmount = baseRate + extraCharge + outCityCharge;
-                  const bookingCity = normalizeCity(
-                    booking.receiverCity || booking.senderCity
-                  );
-                  const matchingRiders = approvedActiveRiders.filter(
-                    (rider) => normalizeCity(rider.city) === bookingCity
-                  );
-                  const riderOptions =
-                    matchingRiders.length > 0 ? matchingRiders : approvedActiveRiders;
+                  const riderOptions = approvedActiveRiders;
                   return (
                     <div
                       key={booking.trackingId}
@@ -4050,21 +4050,52 @@ export function Admin() {
                             {booking.deliveryCode}
                           </span>
                         </div>
-                        <select
-                          value={booking.status}
-                          onChange={(e) =>
-                            handleStatusChange(
-                              booking,
-                              e.target.value as BookingStatusKey
-                            )
-                          }
-                          className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-                          {STATUS_OPTIONS.map((status) => (
-                            <option key={status.key} value={status.key}>
-                              {status.label}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-3 py-2 rounded-xl text-xs font-semibold ${statusConfig.badge}`}>
+                            {statusConfig.label}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            Rider controlled
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-sm">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Assigned Rider
+                        </p>
+                        <p className="text-sm font-semibold text-slate-900 mt-2">
+                          {booking.assignedRiderName || 'Not assigned'}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {booking.assignedRiderCity || booking.receiverCity || '-'}
+                        </p>
+                        {riderOptions.length > 0 ? (
+                          <div className="mt-3">
+                            <select
+                              value={booking.assignedRiderId || ''}
+                              onChange={(e) => {
+                                const riderAuthUid = e.target.value;
+                                if (!riderAuthUid) return;
+                                handleAssignRider(booking, riderAuthUid);
+                              }}
+                              className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+                              <option value="">Assign rider</option>
+                              {riderOptions.map((rider) => (
+                                <option
+                                  key={rider.authUid || rider.id}
+                                  value={rider.authUid || ''}>
+                                  {rider.fullName} • {rider.city}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-500 mt-2">
+                            No approved riders with active login yet.
+                          </p>
+                        )}
                       </div>
                       {booking.status === 'delivery_rejected' &&
                         booking.rejectionReason && (
@@ -4098,9 +4129,6 @@ export function Admin() {
             <>
               <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">
-                    Rider Management
-                  </p>
                   <h2 className="text-3xl lg:text-4xl font-semibold text-slate-900 mt-2">
                     Rider Applications
                   </h2>
@@ -4258,19 +4286,30 @@ export function Admin() {
                   const stats =
                     (rider.authUid && riderStats[rider.authUid]) || {
                       total: 0,
-                      delivered: 0,
-                      pending: 0
+                      byStatus: buildEmptyStatusCounts()
                     };
+                  const riderBookings = rider.authUid
+                    ? riderBookingMap.get(rider.authUid) || []
+                    : [];
+                  const cityCounts = riderBookings.reduce(
+                    (acc, booking) => {
+                      const city =
+                        booking.receiverCity || booking.senderCity || 'Unknown';
+                      acc[city] = (acc[city] || 0) + 1;
+                      return acc;
+                    },
+                    {} as Record<string, number>
+                  );
                   return (
                     <div
                       key={rider.id}
-                      className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm space-y-4">
-                      <div className="flex items-start justify-between gap-4">
+                      className="rounded-3xl bg-white border border-slate-200 p-4 sm:p-5 shadow-sm space-y-3">
+                      <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                             Rider
                           </p>
-                          <h3 className="text-lg font-semibold text-slate-900 mt-2">
+                          <h3 className="text-base sm:text-lg font-semibold text-slate-900 mt-1">
                             {rider.fullName}
                           </h3>
                           <p className="text-xs text-slate-500 mt-1">
@@ -4283,67 +4322,137 @@ export function Admin() {
                             Phone: {rider.mobile}
                           </p>
                         </div>
-                        <div className="flex flex-col items-end gap-2">
+                        <div className="flex flex-col items-end gap-1.5">
                           <span
-                            className={`px-3 py-1 rounded-full text-xs font-semibold ${riderStatusBadge[rider.status]}`}>
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${riderStatusBadge[rider.status]}`}>
                             {rider.status}
                           </span>
-                          <span className="text-xs text-slate-500">
+                          <span className="text-[11px] text-slate-500">
                             {rider.authUid ? 'Login active' : 'Login pending'}
                           </span>
                         </div>
                       </div>
 
-                      <div className="grid gap-3 sm:grid-cols-3 text-sm">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                      <div className="grid gap-2 sm:grid-cols-2 text-sm">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-2.5">
                           <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                             Assigned
                           </p>
-                          <p className="text-sm font-semibold text-slate-900 mt-2">
+                          <p className="text-sm font-semibold text-slate-900 mt-1.5">
                             {stats.total}
                           </p>
                         </div>
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-2.5">
                           <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                            Delivered
+                            Parcel Status
                           </p>
-                          <p className="text-sm font-semibold text-slate-900 mt-2">
-                            {stats.delivered}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
-                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                            Pending
-                          </p>
-                          <p className="text-sm font-semibold text-slate-900 mt-2">
-                            {stats.pending}
-                          </p>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            {STATUS_OPTIONS.map((status) => (
+                              <div
+                                key={status.key}
+                                className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.badge}`}>
+                                  {status.label}
+                                </span>
+                                <span className="text-xs font-semibold text-slate-900">
+                                  {stats.byStatus[status.key] || 0}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
 
-                      <div className="grid gap-3 sm:grid-cols-2 text-sm">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                      <div className="grid gap-2 sm:grid-cols-2 text-sm">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-2.5">
                           <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                             Vehicle
                           </p>
-                          <p className="text-sm font-semibold text-slate-900 mt-2">
+                          <p className="text-sm font-semibold text-slate-900 mt-1.5">
                             {rider.vehicleType} • {rider.vehicleModel}
                           </p>
                           <p className="text-xs text-slate-500">
                             {rider.vehicleNumber} • {rider.vehicleColor}
                           </p>
                         </div>
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-2.5">
                           <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                             Emergency
                           </p>
-                          <p className="text-sm font-semibold text-slate-900 mt-2">
+                          <p className="text-sm font-semibold text-slate-900 mt-1.5">
                             {rider.emergencyName}
                           </p>
                           <p className="text-xs text-slate-500">
                             {rider.emergencyRelation} • {rider.emergencyPhone}
                           </p>
                         </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-3 text-sm space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Assigned Parcels
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Total {riderBookings.length}
+                          </p>
+                        </div>
+                        {Object.keys(cityCounts).length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {Object.entries(cityCounts).map(([city, count]) => (
+                              <span
+                                key={city}
+                                className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 ring-1 ring-slate-200/70">
+                                {city} • {count}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {riderBookings.length === 0 ? (
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
+                            No parcels assigned yet.
+                          </div>
+                        ) : (
+                          <div className="grid gap-2 max-h-72 overflow-y-auto pr-1">
+                            {riderBookings.map((booking) => {
+                              const statusConfig =
+                                STATUS_OPTIONS.find(
+                                  (item) => item.key === booking.status
+                                ) ?? STATUS_OPTIONS[0];
+                              return (
+                                <div
+                                  key={booking.trackingId}
+                                  className="rounded-2xl border border-slate-200 bg-slate-50/80 p-2.5">
+                                  <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <div>
+                                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                                        Tracking ID
+                                      </p>
+                                      <p className="text-sm font-semibold text-slate-900 mt-1">
+                                        {booking.trackingId}
+                                      </p>
+                                      <p className="text-xs text-slate-500 mt-1">
+                                        {booking.senderCity} → {booking.receiverCity}
+                                      </p>
+                                      <p className="text-xs text-slate-500">
+                                        {booking.receiverAddress || '-'}
+                                      </p>
+                                      <p className="text-xs text-slate-500">
+                                        {formatDate(booking.createdAt)}{' '}
+                                        {formatTime(booking.createdAt)}
+                                      </p>
+                                    </div>
+                                    <span
+                                      className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${statusConfig.badge}`}>
+                                      {statusConfig.label}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap gap-2">
@@ -4661,6 +4770,373 @@ export function Admin() {
                 </div>
               </section>
             </>
+          ) : activePanel === 'rider-history' ? (
+            <>
+              <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">
+                    Rider Insights
+                  </p>
+                  <h2 className="text-3xl lg:text-4xl font-semibold text-slate-900 mt-2">
+                    Rider History
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-2">
+                    View rider profiles, assignments, and overall performance in one place.
+                  </p>
+                </div>
+                <div className="text-sm text-slate-500">
+                  Total riders: {riderCounts.all}
+                </div>
+              </div>
+
+              <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm transition hover:shadow-lg hover:-translate-y-1">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Total Riders
+                      </p>
+                      <p className="text-2xl font-semibold text-slate-900 mt-2">
+                        {riderCounts.all}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-2">
+                        All rider profiles
+                      </p>
+                    </div>
+                    <div className="h-12 w-12 rounded-2xl bg-slate-900/10 text-slate-900 flex items-center justify-center">
+                      <Users className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm transition hover:shadow-lg hover:-translate-y-1">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Approved Riders
+                      </p>
+                      <p className="text-2xl font-semibold text-slate-900 mt-2">
+                        {riderCounts.approved}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-2">
+                        Login active: {approvedActiveRiders.length}
+                      </p>
+                    </div>
+                    <div className="h-12 w-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                      <CheckCircle2 className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm transition hover:shadow-lg hover:-translate-y-1">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Pending Riders
+                      </p>
+                      <p className="text-2xl font-semibold text-slate-900 mt-2">
+                        {riderCounts.pending}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-2">
+                        Awaiting review
+                      </p>
+                    </div>
+                    <div className="h-12 w-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center">
+                      <Clock className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm transition hover:shadow-lg hover:-translate-y-1">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Suspended Riders
+                      </p>
+                      <p className="text-2xl font-semibold text-slate-900 mt-2">
+                        {riderCounts.suspended}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-2">
+                        Temporarily paused
+                      </p>
+                    </div>
+                    <div className="h-12 w-12 rounded-2xl bg-slate-100 text-slate-600 flex items-center justify-center">
+                      <XCircle className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm transition hover:shadow-lg hover:-translate-y-1">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Total Assigned
+                      </p>
+                      <p className="text-2xl font-semibold text-slate-900 mt-2">
+                        {riderHistorySummary.assigned}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-2">
+                        Overall parcels assigned
+                      </p>
+                    </div>
+                    <div className="h-12 w-12 rounded-2xl bg-slate-900/10 text-slate-900 flex items-center justify-center">
+                      <Truck className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm transition hover:shadow-lg hover:-translate-y-1">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Delivered
+                      </p>
+                      <p className="text-2xl font-semibold text-slate-900 mt-2">
+                        {riderHistorySummary.delivered}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-2">
+                        Delivered or paid
+                      </p>
+                    </div>
+                    <div className="h-12 w-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                      <BadgeCheck className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm transition hover:shadow-lg hover:-translate-y-1">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        In Transit
+                      </p>
+                      <p className="text-2xl font-semibold text-slate-900 mt-2">
+                        {riderHistorySummary.inTransit}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-2">
+                        Confirmed / In transit
+                      </p>
+                    </div>
+                    <div className="h-12 w-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                      <BarChart3 className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm transition hover:shadow-lg hover:-translate-y-1">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Rejected
+                      </p>
+                      <p className="text-2xl font-semibold text-slate-900 mt-2">
+                        {riderHistorySummary.rejected}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-2">
+                        Delivery rejected
+                      </p>
+                    </div>
+                    <div className="h-12 w-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center">
+                      <AlertTriangle className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-slate-200 bg-white/70 backdrop-blur p-4 shadow-sm">
+                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    Province
+                    <select
+                      value={riderProvinceFilter}
+                      onChange={(e) => {
+                        const next = e.target.value as typeof riderProvinceFilter;
+                        setRiderProvinceFilter(next);
+                        if (next !== 'all') {
+                          setRiderCityFilter('all');
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      <option value="all">All</option>
+                      <option value="punjab">Punjab</option>
+                      <option value="sindh">Sindh</option>
+                      <option value="kpk">KP</option>
+                      <option value="balochistan">Balochistan</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    Status
+                    <select
+                      value={riderStatusFilter}
+                      onChange={(e) => setRiderStatusFilter(e.target.value)}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      <option value="all">All</option>
+                      {riderStatusOptions.map((status) => (
+                        <option key={status.key} value={status.key}>
+                          {status.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    City
+                    <select
+                      value={riderCityFilter}
+                      onChange={(e) => {
+                        setRiderCityFilter(e.target.value);
+                        if (e.target.value !== 'all') {
+                          setRiderProvinceFilter('all');
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      <option value="all">All</option>
+                      {riderCityOptions.map((city) => (
+                        <option key={city} value={city}>
+                          {city}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setRiderProvinceFilter('all');
+                      setRiderStatusFilter('all');
+                      setRiderCityFilter('all');
+                      setRiderQuery('');
+                    }}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50">
+                    Reset Filters
+                  </button>
+                </div>
+              </section>
+
+              {riderHistoryRows.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 text-center text-slate-600">
+                  No riders found for this filter.
+                </div>
+              ) : (
+                <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                  {riderHistoryRows.map(({ rider, summary, lastAssigned }) => (
+                    <div
+                      key={rider.id}
+                      className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Rider
+                          </p>
+                          <h3 className="text-base sm:text-lg font-semibold text-slate-900 mt-1">
+                            {rider.fullName}
+                          </h3>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {rider.city || '-'}
+                            {rider.area ? ` • ${rider.area}` : ''}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            CNIC: {rider.cnic}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1.5">
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${riderStatusBadge[rider.status]}`}>
+                            {rider.status}
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            {rider.authUid ? 'Login active' : 'Login pending'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-2 sm:grid-cols-2 text-sm">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Contact
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900 mt-1.5">
+                            {rider.mobile || '-'}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {rider.email || '-'}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Vehicle
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900 mt-1.5">
+                            {rider.vehicleType} • {rider.vehicleModel}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {rider.vehicleNumber ||
+                              rider.vehicleRegistrationNumber ||
+                              '-'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-3 text-sm">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Performance
+                        </p>
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                            <span className="text-xs text-slate-500">
+                              Assigned
+                            </span>
+                            <span className="text-xs font-semibold text-slate-900">
+                              {summary.total}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                            <span className="text-xs text-slate-500">
+                              Delivered
+                            </span>
+                            <span className="text-xs font-semibold text-slate-900">
+                              {summary.delivered}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                            <span className="text-xs text-slate-500">
+                              In Transit
+                            </span>
+                            <span className="text-xs font-semibold text-slate-900">
+                              {summary.inTransit}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                            <span className="text-xs text-slate-500">
+                              Pending
+                            </span>
+                            <span className="text-xs font-semibold text-slate-900">
+                              {summary.pending}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                            <span className="text-xs text-slate-500">
+                              Rejected
+                            </span>
+                            <span className="text-xs font-semibold text-slate-900">
+                              {summary.rejected}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">
+                          Last assigned:{' '}
+                          {lastAssigned ? formatDateTime(lastAssigned) : 'No assignments yet'}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-xs text-slate-500">
+                        <div>Joined: {formatDateTime(rider.createdAt)}</div>
+                        <div>Address: {rider.fullAddress || '-'}</div>
+                      </div>
+                    </div>
+                  ))}
+                </section>
+              )}
+            </>
           ) : (
             <>
               <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
@@ -4854,48 +5330,6 @@ export function Admin() {
                 }}
                 className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold">
                 {confirmAction.confirmLabel || 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {rejectionTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm px-4">
-          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl p-6">
-            <h3 className="text-xl font-black text-slate-900">
-              Add Rejection Reason
-            </h3>
-            <p className="text-sm text-slate-500 mt-1">
-              This reason will be visible to the user on the tracking page.
-            </p>
-            <div className="mt-4">
-              <textarea
-                value={rejectionReason}
-                onChange={(e) => {
-                  setRejectionReason(e.target.value);
-                  setRejectionError('');
-                }}
-                rows={4}
-                placeholder="Write the reason for rejection..."
-                className="w-full px-4 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500 text-sm"
-              />
-              {rejectionError && (
-                <p className="text-sm text-rose-600 mt-2">
-                  {rejectionError}
-                </p>
-              )}
-            </div>
-            <div className="mt-5 flex items-center justify-end gap-3">
-              <button
-                onClick={handleRejectCancel}
-                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50">
-                Cancel
-              </button>
-              <button
-                onClick={handleRejectSave}
-                className="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-semibold hover:bg-rose-700">
-                Save Reason
               </button>
             </div>
           </div>

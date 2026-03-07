@@ -476,6 +476,19 @@ export function CodRegistration() {
     }
   }, [viewMode, loginAccount?.id]);
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const className = 'hide-floating-whatsapp-mobile';
+    if (viewMode === 'account') {
+      document.body.classList.add(className);
+    } else {
+      document.body.classList.remove(className);
+    }
+    return () => {
+      document.body.classList.remove(className);
+    };
+  }, [viewMode]);
+
 
   const selectedPlanData =
     packages.find((pack) => pack.code === selectedPlan) ?? null;
@@ -1301,13 +1314,13 @@ export function CodRegistration() {
           <div className="lg:pl-64">
             <header className="sticky top-0 z-40">
               <div className="px-4 sm:px-6 lg:px-10 pt-4">
-                <div className="rounded-3xl border border-slate-200/70 bg-white/80 backdrop-blur-xl shadow-sm px-4 sm:px-6 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                <div className="flex items-start gap-3">
+                <div className="rounded-3xl border border-slate-200/70 bg-white/80 backdrop-blur-xl shadow-sm px-4 sm:px-6 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 sm:gap-6">
+                <div className="flex items-start gap-3 min-w-0">
                   <div>
                     <p className="text-[10px] sm:text-xs uppercase tracking-[0.25em] sm:tracking-[0.3em] text-slate-400">
                       Merchant Dashboard
                     </p>
-                    <h1 className="text-lg sm:text-2xl md:text-3xl font-bold text-slate-900 mt-1">
+                    <h1 className="text-lg sm:text-2xl md:text-3xl font-bold text-slate-900 mt-1 break-words">
                       {loginAccount.companyName || 'Your COD Account'}
                     </h1>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs">
@@ -1329,13 +1342,13 @@ export function CodRegistration() {
                   <button
                     type="button"
                     onClick={() => navigate('/alerts?scope=user')}
-                    className="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:border-slate-300 transition">
+                    className="h-11 w-full sm:w-10 rounded-2xl border border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:border-slate-300 transition flex items-center justify-center">
                     <Bell className="h-4 w-4 mx-auto" />
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsDarkMode((prev) => !prev)}
-                    className="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:border-slate-300 transition">
+                    className="h-11 w-full sm:w-10 rounded-2xl border border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:border-slate-300 transition flex items-center justify-center">
                     {isDarkMode ? (
                       <Sun className="h-4 w-4 mx-auto" />
                     ) : (
@@ -1425,41 +1438,46 @@ export function CodRegistration() {
 
             <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-[#0B1220] shadow-[0_-10px_30px_-20px_rgba(15,23,42,0.7)]">
               <div className="max-w-[760px] mx-auto px-3 pt-2 pb-3">
-                <div className="grid grid-cols-8 gap-2">
-                  {DASHBOARD_NAV.map((item, index) => {
-                    const isActive = activeSection === item.key;
-                    return (
-                      <React.Fragment key={item.key}>
-                        {index === 1 && (
-                          canBookParcels ? (
-                            <Link
-                              to="/book"
-                              className="flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold transition text-white/70 hover:bg-white/10 hover:text-white">
-                              <PlusCircle className="h-5 w-5" />
-                              <span className="leading-none">Book a Parcel</span>
-                            </Link>
-                          ) : (
-                            <div className="flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold text-white/40 cursor-not-allowed">
-                              <Lock className="h-5 w-5" />
-                              <span className="leading-none">Booking locked</span>
-                            </div>
-                          )
-                        )}
+                <div className="grid grid-cols-7 gap-2">
+                  {canBookParcels ? (
+                    <Link
+                      to="/book"
+                      className="flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[9px] font-semibold text-center leading-snug transition text-white/70 hover:bg-white/10 hover:text-white">
+                      <PlusCircle className="h-5 w-5" />
+                      <span className="leading-snug">
+                        Book a Parcel
+                      </span>
+                    </Link>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[9px] font-semibold text-center leading-snug text-white/40 cursor-not-allowed">
+                      <Lock className="h-5 w-5" />
+                      <span className="leading-snug">
+                        Booking locked
+                      </span>
+                    </div>
+                  )}
+                  {DASHBOARD_NAV.filter((item) => item.key !== 'dashboard').map(
+                    (item) => {
+                      const isActive = activeSection === item.key;
+                      return (
                         <button
+                          key={item.key}
                           type="button"
                           onClick={() => setActiveSection(item.key)}
                           aria-current={isActive ? 'page' : undefined}
-                          className={`flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-semibold transition ${
+                          className={`flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[9px] font-semibold text-center leading-snug transition ${
                             isActive
                               ? 'bg-gradient-to-r from-white/20 to-white/5 text-white ring-1 ring-white/25'
                               : 'text-white/70 hover:bg-white/10 hover:text-white'
                           }`}>
                           <item.icon className="h-5 w-5" />
-                          <span className="leading-none">{item.label}</span>
+                          <span className="leading-snug">
+                            {item.label}
+                          </span>
                         </button>
-                      </React.Fragment>
-                    );
-                  })}
+                      );
+                    }
+                  )}
                 </div>
               </div>
             </nav>
@@ -1998,7 +2016,50 @@ export function CodRegistration() {
                     </button>
                   </div>
 
-                  <div className="mt-5 overflow-x-auto">
+                  <div className="mt-5 grid gap-3 sm:hidden">
+                    {sortedBookings.slice(0, 6).map((booking) => (
+                      <div
+                        key={booking.trackingId}
+                        className="rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Tracking
+                            </p>
+                            <p className="text-base font-semibold text-slate-900 mt-1">
+                              {booking.trackingId}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">
+                              {formatDateTime(booking.createdAt)}
+                            </p>
+                          </div>
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${statusBadge(
+                              booking.status
+                            )}`}>
+                            {statusLabel(booking.status)}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
+                          <span>Amount</span>
+                          <span className="font-semibold text-slate-900">
+                            Rs. {formatMoney(booking.shippingCharge || 0)}
+                          </span>
+                        </div>
+                        <button className="mt-3 w-full inline-flex items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                          Details
+                          <ArrowUpRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                    {sortedBookings.length === 0 && (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+                        No parcels booked yet. Start by booking your first shipment.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-5 hidden sm:block overflow-x-auto">
                     <table className="w-full min-w-[720px] text-sm sm:text-base">
                       <thead>
                         <tr className="text-left text-slate-400 text-xs sm:text-sm uppercase tracking-[0.2em]">

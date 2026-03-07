@@ -115,7 +115,7 @@ export function Navbar() {
 
         {/* Mobile Menu */}
         <div
-          className={`lg:hidden transition-all duration-300 ${isMobileMenuOpen ? 'max-h-[85vh] pb-4 overflow-y-auto' : 'max-h-0 overflow-hidden'}`}>
+          className={`lg:hidden transition-all duration-300 border-t border-slate-200 ${isMobileMenuOpen ? 'max-h-[85vh] pb-4 overflow-y-auto bg-white shadow-lg' : 'max-h-0 overflow-hidden bg-white'}`}>
 
           <div className="flex flex-col gap-2 pt-2">
             {navLinks.map((link) =>
