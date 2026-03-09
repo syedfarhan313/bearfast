@@ -35,6 +35,7 @@ import {
   deleteCodAccount,
   SERVICE_CITIES,
   subscribeCodAccount,
+  updateCodAccountProfile,
   updateCodAccountLastLogin
 } from '../utils/codAccountStore';
 import {
@@ -54,9 +55,11 @@ import { auth } from '../lib/firebase';
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
+  updateEmail,
   updatePassword
 } from 'firebase/auth';
 
@@ -112,6 +115,12 @@ const DASHBOARD_NAV = [
   { key: 'orders', label: 'Orders', icon: Package },
   { key: 'wallet', label: 'Wallet', icon: Wallet },
   { key: 'summary', label: 'Booking Summary', icon: Clipboard },
+  { key: 'loadsheet', label: 'Generate Load Sheet', icon: Clipboard },
+  { key: 'loadsheet_log', label: 'Loading Sheet Log', icon: FileText },
+  { key: 'shipper_advice', label: 'Shipper Advice', icon: Mail },
+  { key: 'track', label: 'Track Deliveries', icon: Truck },
+  { key: 'edit_profile', label: 'Edit Profile', icon: UserCircle2 },
+  { key: 'payments', label: 'Payment History', icon: Wallet },
   { key: 'support', label: 'Complaints', icon: MessageSquare },
   { key: 'reports', label: 'Reports', icon: FileText },
   { key: 'settings', label: 'Settings', icon: Settings }
@@ -146,6 +155,8 @@ type FormState = {
   confirmPassword: string;
 };
 
+type ProfileFormState = Omit<FormState, 'password' | 'confirmPassword'>;
+
 const initialForm: FormState = {
   companyName: '',
   companyLegalName: '',
@@ -171,6 +182,31 @@ const initialForm: FormState = {
   googleMapPin: '',
   password: '',
   confirmPassword: ''
+};
+
+const initialProfileForm: ProfileFormState = {
+  companyName: '',
+  companyLegalName: '',
+  businessType: '',
+  website: '',
+  contactName: '',
+  phone: '',
+  email: '',
+  altPhone: '',
+  address: '',
+  cnic: '',
+  bankName: '',
+  accountTitle: '',
+  accountNumber: '',
+  iban: '',
+  swiftCode: '',
+  branchName: '',
+  branchCode: '',
+  city: '',
+  pickupTimings: '',
+  monthlyShipment: '',
+  specialInstructions: '',
+  googleMapPin: ''
 };
 
 const isEmailValid = (value: string) =>
@@ -212,6 +248,248 @@ const formatWeight = (value: number) => {
 
 const formatMoney = (value: number) =>
   value.toLocaleString('en-PK', { maximumFractionDigits: 0 });
+const formatMoneyDecimal = (value: number) =>
+  value.toLocaleString('en-PK', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+const getPaymentDate = (booking: Booking) => {
+  const history = booking.statusHistory || [];
+  const entry = [...history].reverse().find((item) => item.status === 'payment_received');
+  return entry?.at || booking.createdAt;
+};
+const getPaymentStatusLabel = (booking: Booking) => {
+  if (booking.status === 'payment_received') return 'Paid';
+  if (booking.status === 'delivered') return 'Pending Settlement';
+  if (booking.status === 'out_for_delivery') return 'Out for Delivery';
+  if (booking.status === 'in_transit') return 'In Transit';
+  return 'In Process';
+};
+
+const loadSheetEntries = [
+  {
+    date: '2026-03-09',
+    trackingNo: '173011578696',
+    pickupName: 'BEAR FAST COURIERS CARGO & LOGISTICS',
+    pickupCompany: 'BEAR FAST COURIERS CARGO & Logistics',
+    pickupPhone: '03341808510',
+    orderId: '',
+    deliveryName: 'SAHIL KHAN',
+    deliveryPhone: '923415355998',
+    qty: 1,
+    pickupCity: 'Bannuu',
+    deliveryCity: 'Swat',
+    weightKg: 0.5,
+    codAmount: 0
+  },
+  {
+    date: '2026-03-09',
+    trackingNo: '173011578702',
+    pickupName: 'HUGO ECOM STORE',
+    pickupCompany: 'Hugo Online Pvt Ltd',
+    pickupPhone: '03001239876',
+    orderId: 'HF-77452',
+    deliveryName: 'AIMAN BUTT',
+    deliveryPhone: '923004442211',
+    qty: 2,
+    pickupCity: 'Lahore',
+    deliveryCity: 'Karachi',
+    weightKg: 1.25,
+    codAmount: 3450
+  },
+  {
+    date: '2026-03-09',
+    trackingNo: '173011578711',
+    pickupName: 'MEGA MART',
+    pickupCompany: 'Mega Mart Wholesale',
+    pickupPhone: '03451234567',
+    orderId: 'MM-21909',
+    deliveryName: 'USMAN TARIQ',
+    deliveryPhone: '923015559988',
+    qty: 1,
+    pickupCity: 'Islamabad',
+    deliveryCity: 'Peshawar',
+    weightKg: 0.9,
+    codAmount: 1890
+  },
+  {
+    date: '2026-03-09',
+    trackingNo: '173011578724',
+    pickupName: 'NOVA FASHION',
+    pickupCompany: 'Nova Fashion House',
+    pickupPhone: '03111222111',
+    orderId: 'NF-48031',
+    deliveryName: 'HASSAN RAZA',
+    deliveryPhone: '923327001122',
+    qty: 3,
+    pickupCity: 'Faisalabad',
+    deliveryCity: 'Sialkot',
+    weightKg: 2.4,
+    codAmount: 7650
+  },
+  {
+    date: '2026-03-09',
+    trackingNo: '173011578739',
+    pickupName: 'URBAN TECH',
+    pickupCompany: 'Urban Tech Traders',
+    pickupPhone: '03211223344',
+    orderId: 'UT-66708',
+    deliveryName: 'ZAINAB IQBAL',
+    deliveryPhone: '923218889900',
+    qty: 1,
+    pickupCity: 'Karachi',
+    deliveryCity: 'Multan',
+    weightKg: 1.8,
+    codAmount: 5200
+  },
+  {
+    date: '2026-03-09',
+    trackingNo: '173011578745',
+    pickupName: 'RUBY BEAUTY',
+    pickupCompany: 'Ruby Beauty Co.',
+    pickupPhone: '03336667788',
+    orderId: 'RB-50122',
+    deliveryName: 'MOMINA ASIF',
+    deliveryPhone: '923336770099',
+    qty: 2,
+    pickupCity: 'Quetta',
+    deliveryCity: 'Hyderabad',
+    weightKg: 1.1,
+    codAmount: 2790
+  },
+  {
+    date: '2026-03-09',
+    trackingNo: '173011578752',
+    pickupName: 'ALPHA HOME',
+    pickupCompany: 'Alpha Home Store',
+    pickupPhone: '03019998877',
+    orderId: 'AH-11892',
+    deliveryName: 'IRFAN ALI',
+    deliveryPhone: '923456700112',
+    qty: 1,
+    pickupCity: 'Gujranwala',
+    deliveryCity: 'Sargodha',
+    weightKg: 3.2,
+    codAmount: 9900
+  },
+  {
+    date: '2026-03-09',
+    trackingNo: '173011578761',
+    pickupName: 'ZEN LIFESTYLE',
+    pickupCompany: 'Zen Lifestyle PK',
+    pickupPhone: '03145556677',
+    orderId: 'ZL-88310',
+    deliveryName: 'FARHAN AKRAM',
+    deliveryPhone: '923001112233',
+    qty: 1,
+    pickupCity: 'Rawalpindi',
+    deliveryCity: 'Bahawalpur',
+    weightKg: 0.75,
+    codAmount: 2250
+  },
+  {
+    date: '2026-03-09',
+    trackingNo: '173011578774',
+    pickupName: 'BRIGHT ACCESSORIES',
+    pickupCompany: 'Bright Accessories',
+    pickupPhone: '03225667788',
+    orderId: 'BA-99017',
+    deliveryName: 'HINA YOUSAF',
+    deliveryPhone: '923142229944',
+    qty: 4,
+    pickupCity: 'Sialkot',
+    deliveryCity: 'Lahore',
+    weightKg: 2.8,
+    codAmount: 4300
+  },
+  {
+    date: '2026-03-09',
+    trackingNo: '173011578781',
+    pickupName: 'NEXA BOOKS',
+    pickupCompany: 'Nexa Books & Stationery',
+    pickupPhone: '03400011223',
+    orderId: 'NB-77025',
+    deliveryName: 'MAAZ KHAN',
+    deliveryPhone: '923077700011',
+    qty: 2,
+    pickupCity: 'Lahore',
+    deliveryCity: 'Gujrat',
+    weightKg: 1.6,
+    codAmount: 3150
+  }
+];
+
+const loadSheetLogEntries: {
+  assignmentNo: string;
+  rider: string;
+  date: string;
+  action: string;
+}[] = [];
+
+const shipperAdviceEntries = [
+  {
+    adviceNo: 'SA-2026-0012',
+    date: '2026-03-09',
+    shipper: 'BEAR FAST COURIERS CARGO & Logistics',
+    origin: 'Karachi',
+    destination: 'Lahore',
+    shipments: 18,
+    weightKg: 42.5,
+    codAmount: 125400,
+    status: 'In Transit'
+  },
+  {
+    adviceNo: 'SA-2026-0013',
+    date: '2026-03-09',
+    shipper: 'Nova Fashion House',
+    origin: 'Faisalabad',
+    destination: 'Islamabad',
+    shipments: 12,
+    weightKg: 27.8,
+    codAmount: 68400,
+    status: 'Pending'
+  },
+  {
+    adviceNo: 'SA-2026-0014',
+    date: '2026-03-08',
+    shipper: 'Urban Tech Traders',
+    origin: 'Karachi',
+    destination: 'Multan',
+    shipments: 9,
+    weightKg: 18.4,
+    codAmount: 45200,
+    status: 'Delivered'
+  },
+  {
+    adviceNo: 'SA-2026-0015',
+    date: '2026-03-08',
+    shipper: 'Mega Mart Wholesale',
+    origin: 'Islamabad',
+    destination: 'Peshawar',
+    shipments: 7,
+    weightKg: 15.2,
+    codAmount: 18900,
+    status: 'In Transit'
+  },
+  {
+    adviceNo: 'SA-2026-0016',
+    date: '2026-03-07',
+    shipper: 'Hugo Online Pvt Ltd',
+    origin: 'Lahore',
+    destination: 'Karachi',
+    shipments: 16,
+    weightKg: 34.1,
+    codAmount: 91200,
+    status: 'Open'
+  }
+];
+
+const shipperAdviceBadge = (status: string) => {
+  if (status === 'Delivered') return 'bg-emerald-100 text-emerald-700';
+  if (status === 'In Transit') return 'bg-sky-100 text-sky-700';
+  if (status === 'Pending') return 'bg-amber-100 text-amber-700';
+  return 'bg-slate-100 text-slate-700';
+};
 
 const initialFeedbackForm = {
   type: 'complaint',
@@ -299,6 +577,12 @@ export function CodRegistration() {
   const [confirmAccountPassword, setConfirmAccountPassword] = useState('');
   const [accountPasswordError, setAccountPasswordError] = useState('');
   const [accountPasswordSuccess, setAccountPasswordSuccess] = useState('');
+  const [profileForm, setProfileForm] =
+    useState<ProfileFormState>(initialProfileForm);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState('');
+  const [profileEmailNotice, setProfileEmailNotice] = useState('');
   const [collapsedSections, setCollapsedSections] = useState({
     company: false,
     contact: false,
@@ -475,6 +759,40 @@ export function CodRegistration() {
       setActiveSection('dashboard');
     }
   }, [viewMode, loginAccount?.id]);
+
+  useEffect(() => {
+    if (!loginAccount) {
+      setProfileForm(initialProfileForm);
+      return;
+    }
+    setProfileForm({
+      companyName: loginAccount.companyName || '',
+      companyLegalName: loginAccount.companyLegalName || '',
+      businessType: loginAccount.businessType || '',
+      website: loginAccount.website || '',
+      contactName: loginAccount.contactName || '',
+      phone: loginAccount.phone || '',
+      email: loginAccount.email || '',
+      altPhone: loginAccount.altPhone || '',
+      address: loginAccount.address || '',
+      cnic: loginAccount.cnic || '',
+      bankName: loginAccount.bankName || '',
+      accountTitle: loginAccount.accountTitle || '',
+      accountNumber: loginAccount.accountNumber || '',
+      iban: loginAccount.iban || '',
+      swiftCode: loginAccount.swiftCode || '',
+      branchName: loginAccount.branchName || '',
+      branchCode: loginAccount.branchCode || '',
+      city: loginAccount.city || '',
+      pickupTimings: loginAccount.pickupTimings || '',
+      monthlyShipment: loginAccount.monthlyShipment || '',
+      specialInstructions: loginAccount.specialInstructions || '',
+      googleMapPin: loginAccount.googleMapPin || ''
+    });
+    setProfileError('');
+    setProfileSuccess('');
+    setProfileEmailNotice('');
+  }, [loginAccount]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -847,6 +1165,8 @@ export function CodRegistration() {
   const inputOk = 'border-slate-200';
   const inputClass = (field: string) =>
     `${inputBase} ${errors[field] ? inputError : inputOk}`;
+  const profileInput =
+    'w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500';
   const toggleSection = (
     section: keyof typeof collapsedSections
   ) => {
@@ -854,6 +1174,116 @@ export function CodRegistration() {
       ...prev,
       [section]: !prev[section]
     }));
+  };
+
+  const handleProfileChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
+    const { name, value } = e.target;
+    setProfileForm((prev) => ({ ...prev, [name]: value }));
+    setProfileError('');
+    setProfileSuccess('');
+  };
+
+  const handleProfileSave = async () => {
+    if (!loginAccount) {
+      setProfileError('Please sign in to update your profile.');
+      return;
+    }
+    if (!profileForm.companyName.trim()) {
+      setProfileError('Company name is required.');
+      return;
+    }
+    if (!isEmailValid(profileForm.email)) {
+      setProfileError('Please enter a valid email address.');
+      return;
+    }
+    if (!isPhoneValid(profileForm.phone)) {
+      setProfileError('Please enter a valid phone number.');
+      return;
+    }
+    if (profileForm.cnic && !isCnicValid(profileForm.cnic)) {
+      setProfileError('Please enter a valid CNIC (13 digits).');
+      return;
+    }
+    setProfileSaving(true);
+    setProfileError('');
+    setProfileSuccess('');
+    setProfileEmailNotice('');
+    const currentUser = auth.currentUser;
+    const nextEmail = profileForm.email.trim();
+    const emailChanged = Boolean(
+      currentUser && currentUser.email && currentUser.email !== nextEmail
+    );
+    let emailUpdateFailed = false;
+    if (emailChanged && currentUser) {
+      try {
+        await updateEmail(currentUser, nextEmail);
+        await sendEmailVerification(currentUser);
+        setProfileEmailNotice(
+          'Verification email sent. Please verify to keep login access.'
+        );
+      } catch (error) {
+        emailUpdateFailed = true;
+        const code =
+          typeof error === 'object' && error && 'code' in error
+            ? String((error as { code: string }).code)
+            : '';
+        if (code === 'auth/requires-recent-login') {
+          setProfileError('Please log in again to change your email.');
+        } else {
+          setProfileError('Unable to update email right now.');
+        }
+      }
+    }
+    try {
+      const payload: Partial<CodAccountRequest> = {
+        companyName: profileForm.companyName.trim(),
+        companyLegalName: profileForm.companyLegalName.trim(),
+        businessType: profileForm.businessType.trim(),
+        website: profileForm.website.trim(),
+        contactName: profileForm.contactName.trim(),
+        phone: profileForm.phone.trim(),
+        altPhone: profileForm.altPhone.trim(),
+        email: emailUpdateFailed ? loginAccount.email : nextEmail,
+        address: profileForm.address.trim(),
+        cnic: profileForm.cnic.trim(),
+        bankName: profileForm.bankName.trim(),
+        accountTitle: profileForm.accountTitle.trim(),
+        accountNumber: profileForm.accountNumber.trim(),
+        iban: profileForm.iban.trim(),
+        swiftCode: profileForm.swiftCode.trim(),
+        branchName: profileForm.branchName.trim(),
+        branchCode: profileForm.branchCode.trim(),
+        city: profileForm.city.trim(),
+        pickupTimings: profileForm.pickupTimings.trim(),
+        monthlyShipment: profileForm.monthlyShipment.trim(),
+        specialInstructions: profileForm.specialInstructions.trim(),
+        googleMapPin: profileForm.googleMapPin.trim()
+      };
+      await updateCodAccountProfile(loginAccount.id, payload);
+      if (!emailUpdateFailed) {
+        setProfileSuccess('Profile updated successfully.');
+      }
+    } catch (error) {
+      console.error('[COD] profile update failed', error);
+      setProfileError('Unable to update profile. Please try again.');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleSendVerification = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    setProfileEmailNotice('');
+    try {
+      await sendEmailVerification(currentUser);
+      setProfileEmailNotice('Verification email sent.');
+    } catch (error) {
+      console.error('[COD] email verification failed', error);
+      setProfileEmailNotice('Unable to send verification email.');
+    }
   };
 
   const handleViewBooking = (trackingId: string) => {
@@ -1033,6 +1463,31 @@ export function CodRegistration() {
     const value = Number(booking.codAmount || 0);
     return !Number.isNaN(value) && value > 0 && booking.status !== 'payment_received';
   }).length;
+  const paymentBookings = useMemo(
+    () =>
+      sortedBookings.filter((booking) => {
+        const value = Number(booking.codAmount || 0);
+        return !Number.isNaN(value) && value > 0;
+      }),
+    [sortedBookings]
+  );
+  const paymentTotals = useMemo(() => {
+    return paymentBookings.reduce(
+      (acc, booking) => {
+        const value = Number(booking.codAmount || 0);
+        if (!Number.isNaN(value)) {
+          acc.total += value;
+          if (booking.status === 'payment_received') {
+            acc.received += value;
+          } else {
+            acc.pending += value;
+          }
+        }
+        return acc;
+      },
+      { total: 0, received: 0, pending: 0 }
+    );
+  }, [paymentBookings]);
   const walletBalance = getDisplayWalletBalance(loginAccount);
   const pendingFundRequest =
     loginAccount &&
@@ -1287,13 +1742,15 @@ export function CodRegistration() {
                         setSidebarOpen(false);
                       }}
                       aria-current={isActive ? 'page' : undefined}
-                      className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-base font-semibold transition ${
+                      className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-base font-semibold transition min-w-0 ${
                         isActive
                           ? 'bg-gradient-to-r from-white/20 to-white/5 text-white ring-1 ring-white/25 shadow-sm'
                           : 'text-white/65 hover:text-white hover:bg-white/10'
                       }`}>
                       <item.icon className="h-4 w-4" />
-                      {item.label}
+                      <span className="truncate whitespace-nowrap">
+                        {item.label}
+                      </span>
                     </button>
                   </React.Fragment>
                 );
@@ -1324,7 +1781,7 @@ export function CodRegistration() {
                       {loginAccount.companyName || 'Your COD Account'}
                     </h1>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs">
-                      <span className="px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold bg-gradient-to-r from-slate-900 to-slate-700 text-white ring-1 ring-slate-900/10">
+                      <span className="px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold bg-gradient-to-r from-slate-900 to-slate-700 text-white ring-1 ring-slate-900/10 whitespace-nowrap">
                         {activeSectionLabel}
                       </span>
                       <span
@@ -1395,11 +1852,11 @@ export function CodRegistration() {
                           <button
                             type="button"
                             onClick={() => {
-                              setActiveSection('settings');
+                              setActiveSection('edit_profile');
                               setProfileOpen(false);
                             }}
                             className="w-full text-left px-3 py-2 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100">
-                            Account settings
+                            Edit profile
                           </button>
                           <button
                             type="button"
@@ -1413,7 +1870,7 @@ export function CodRegistration() {
                           <button
                             type="button"
                             onClick={() => {
-                              signOut(auth);
+                              navigate('/logout');
                               setProfileOpen(false);
                             }}
                             className="w-full text-left px-3 py-2 rounded-xl text-sm font-semibold text-rose-600 hover:bg-rose-50">
@@ -1426,7 +1883,7 @@ export function CodRegistration() {
                   <button
                     type="button"
                     onClick={() => {
-                      signOut(auth);
+                      navigate('/logout');
                     }}
                     className="btn-ripple col-span-2 sm:col-span-1 w-full sm:w-auto text-center px-5 py-2.5 rounded-2xl border border-slate-200 bg-white text-slate-700 font-semibold hover:bg-slate-50">
                     Logout
@@ -1438,18 +1895,18 @@ export function CodRegistration() {
 
             <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-[#0B1220] shadow-[0_-10px_30px_-20px_rgba(15,23,42,0.7)]">
               <div className="max-w-[760px] mx-auto px-3 pt-2 pb-3">
-                <div className="grid grid-cols-7 gap-2">
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
                   {canBookParcels ? (
                     <Link
                       to="/book"
-                      className="flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[9px] font-semibold text-center leading-snug transition text-white/70 hover:bg-white/10 hover:text-white">
+                      className="flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2.5 min-h-[56px] text-[9px] font-semibold text-center leading-snug transition text-white/70 hover:bg-white/10 hover:text-white">
                       <PlusCircle className="h-5 w-5" />
                       <span className="leading-snug">
                         Book a Parcel
                       </span>
                     </Link>
                   ) : (
-                    <div className="flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[9px] font-semibold text-center leading-snug text-white/40 cursor-not-allowed">
+                    <div className="flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2.5 min-h-[56px] text-[9px] font-semibold text-center leading-snug text-white/40 cursor-not-allowed">
                       <Lock className="h-5 w-5" />
                       <span className="leading-snug">
                         Booking locked
@@ -1465,13 +1922,13 @@ export function CodRegistration() {
                           type="button"
                           onClick={() => setActiveSection(item.key)}
                           aria-current={isActive ? 'page' : undefined}
-                          className={`flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[9px] font-semibold text-center leading-snug transition ${
+                          className={`flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2.5 min-h-[56px] text-[9px] font-semibold text-center leading-snug transition ${
                             isActive
                               ? 'bg-gradient-to-r from-white/20 to-white/5 text-white ring-1 ring-white/25'
                               : 'text-white/70 hover:bg-white/10 hover:text-white'
                           }`}>
                           <item.icon className="h-5 w-5" />
-                          <span className="leading-snug">
+                          <span className="leading-snug truncate whitespace-nowrap max-w-[72px]">
                             {item.label}
                           </span>
                         </button>
@@ -1657,7 +2114,86 @@ export function CodRegistration() {
                         </p>
                       </div>
                     </div>
-                    <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/60">
+                    <div className="mt-5 grid gap-3 sm:hidden">
+                      {sortedBookings.map((booking) => {
+                        const pickupCompany =
+                          booking.merchantName || loginAccount?.companyName || '-';
+                        const pickupName = booking.senderName || '-';
+                        const pickupPhone = booking.senderPhone || '-';
+                        const orderId = booking.orderId || '-';
+                        const deliveryName = booking.receiverName || '-';
+                        const deliveryPhone = booking.receiverPhone || '-';
+                        const pieces = booking.pieces ?? 1;
+                        const codValue =
+                          booking.codAmount && booking.codAmount.trim()
+                            ? booking.codAmount
+                            : '0';
+                        return (
+                          <div
+                            key={booking.trackingId}
+                            className="rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                                  Tracking
+                                </p>
+                                <p className="text-base font-semibold text-slate-900 mt-1">
+                                  {booking.trackingId}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  {formatDateOnly(booking.createdAt)}
+                                </p>
+                              </div>
+                              <div className="text-right text-xs text-slate-500">
+                                <div>Qty: {pieces}</div>
+                                <div className="mt-1">
+                                  {formatWeight(booking.weightKg)} Kg
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mt-3 grid gap-3 text-xs text-slate-600">
+                              <div className="rounded-xl bg-slate-50/80 p-3 ring-1 ring-slate-200/40">
+                                <p className="uppercase tracking-[0.2em] text-slate-400">
+                                  Pickup
+                                </p>
+                                <p className="mt-2 font-semibold text-slate-900">
+                                  {pickupName}
+                                </p>
+                                <p>{pickupPhone}</p>
+                                <p>{pickupCompany}</p>
+                                <p>Order ID: {orderId}</p>
+                                <p>City: {booking.senderCity || '-'}</p>
+                              </div>
+                              <div className="rounded-xl bg-slate-50/80 p-3 ring-1 ring-slate-200/40">
+                                <p className="uppercase tracking-[0.2em] text-slate-400">
+                                  Delivery
+                                </p>
+                                <p className="mt-2 font-semibold text-slate-900">
+                                  {deliveryName}
+                                </p>
+                                <p>{deliveryPhone}</p>
+                                <p>City: {booking.receiverCity || '-'}</p>
+                              </div>
+                            </div>
+
+                            <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
+                              <span>COD</span>
+                              <span className="font-semibold text-slate-900">
+                                Rs. {codValue}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {sortedBookings.length === 0 && (
+                        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+                          No bookings yet. Book a parcel to see the summary here.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-5 hidden sm:block rounded-2xl border border-slate-200 bg-slate-50/60">
                       <div className="max-h-[70vh] overflow-auto">
                         <table className="w-full min-w-[1150px] text-sm">
                           <thead className="bg-slate-50 sticky top-0 z-10">
@@ -1772,6 +2308,1425 @@ export function CodRegistration() {
                       </div>
                     </div>
                   </section>
+                </>
+              )}
+
+              {activeSection === 'loadsheet' && (
+                <>
+                  <section className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Generate Load Sheet
+                        </p>
+                        <h2 className="text-2xl sm:text-3xl font-semibold text-slate-800 mt-2">
+                          Dispatch Load Sheet
+                        </h2>
+                        <p className="text-sm text-slate-500 mt-1">
+                          Ready shipments for {formatDateOnly('2026-03-09')}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-ripple inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800">
+                        <Download className="h-4 w-4" />
+                        Generate Sheet
+                      </button>
+                    </div>
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm text-slate-500">
+                        <span>Show</span>
+                        <select
+                          defaultValue="10"
+                          className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                          <option value="10">10</option>
+                          <option value="25">25</option>
+                          <option value="50">50</option>
+                        </select>
+                        <span>entries</span>
+                      </div>
+                      <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Search load sheet"
+                          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200/70 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="mt-5 grid gap-3 sm:hidden">
+                    {loadSheetEntries.map((entry) => (
+                      <div
+                        key={entry.trackingNo}
+                        className="rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Tracking
+                            </p>
+                            <p className="text-base font-semibold text-slate-900 mt-1">
+                              {entry.trackingNo}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">
+                              {formatDateOnly(entry.date)}
+                            </p>
+                          </div>
+                          <div className="text-right text-xs text-slate-500">
+                            <div>Qty: {entry.qty}</div>
+                            <div className="mt-1">
+                              {formatWeight(entry.weightKg)} Kg
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 grid gap-3 text-xs text-slate-600">
+                          <div className="rounded-xl bg-slate-50/80 p-3 ring-1 ring-slate-200/40">
+                            <p className="uppercase tracking-[0.2em] text-slate-400">
+                              Pickup
+                            </p>
+                            <p className="mt-2 font-semibold text-slate-900 truncate">
+                              {entry.pickupName}
+                            </p>
+                            <p>{entry.pickupPhone}</p>
+                            <p>{entry.pickupCompany}</p>
+                            <p>Order ID: {entry.orderId || '-'}</p>
+                            <p>City: {entry.pickupCity}</p>
+                          </div>
+                          <div className="rounded-xl bg-slate-50/80 p-3 ring-1 ring-slate-200/40">
+                            <p className="uppercase tracking-[0.2em] text-slate-400">
+                              Delivery
+                            </p>
+                            <p className="mt-2 font-semibold text-slate-900 truncate">
+                              {entry.deliveryName}
+                            </p>
+                            <p>{entry.deliveryPhone}</p>
+                            <p>City: {entry.deliveryCity}</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
+                          <span>COD</span>
+                          <span className="font-semibold text-slate-900">
+                            Rs. {formatMoneyDecimal(entry.codAmount)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </section>
+
+                  <div className="mt-5 hidden sm:block rounded-2xl border border-slate-200 bg-slate-50/60">
+                    <div className="max-h-[70vh] overflow-auto">
+                      <table className="w-full min-w-[1150px] text-sm">
+                        <thead className="bg-slate-50 sticky top-0 z-10">
+                          <tr className="text-left text-[11px] uppercase tracking-[0.2em] text-slate-400">
+                            <th className="px-4 py-3">Date</th>
+                            <th className="px-4 py-3">Tracking No</th>
+                            <th className="px-4 py-3">Pickup Info</th>
+                            <th className="px-4 py-3">Delivery Info</th>
+                            <th className="px-4 py-3 text-center">Qty</th>
+                            <th className="px-4 py-3">Pickup City</th>
+                            <th className="px-4 py-3">Delivery City</th>
+                            <th className="px-4 py-3">Weight</th>
+                            <th className="px-4 py-3">COD Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 bg-white">
+                          {loadSheetEntries.map((entry) => (
+                            <tr key={entry.trackingNo} className="hover:bg-slate-50">
+                              <td className="px-4 py-4 text-slate-700 font-semibold">
+                                {formatDateOnly(entry.date)}
+                              </td>
+                              <td className="px-4 py-4 font-semibold text-slate-900">
+                                {entry.trackingNo}
+                              </td>
+                              <td className="px-4 py-4">
+                                <div className="space-y-1 text-xs text-slate-600">
+                                  <div>
+                                    <span className="text-slate-400">Name:</span>{' '}
+                                    <span className="inline-block max-w-[220px] align-top truncate whitespace-nowrap">
+                                      {entry.pickupName}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400">Company:</span>{' '}
+                                    {entry.pickupCompany}
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400">Phone:</span>{' '}
+                                    {entry.pickupPhone}
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400">
+                                      Order ID:
+                                    </span>{' '}
+                                    {entry.orderId || '-'}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-4">
+                                <div className="space-y-1 text-xs text-slate-600">
+                                  <div>
+                                    <span className="text-slate-400">Name:</span>{' '}
+                                    <span className="inline-block max-w-[220px] align-top truncate whitespace-nowrap">
+                                      {entry.deliveryName}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400">Phone:</span>{' '}
+                                    {entry.deliveryPhone}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-4 text-center text-slate-700">
+                                {entry.qty}
+                              </td>
+                              <td className="px-4 py-4 text-slate-700">
+                                {entry.pickupCity}
+                              </td>
+                              <td className="px-4 py-4 text-slate-700">
+                                {entry.deliveryCity}
+                              </td>
+                              <td className="px-4 py-4 text-slate-700">
+                                {formatWeight(entry.weightKg)} Kg
+                              </td>
+                              <td className="px-4 py-4 text-slate-700 whitespace-nowrap">
+                                Rs. {formatMoneyDecimal(entry.codAmount)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+                    <span>
+                      Showing 1 to {loadSheetEntries.length} of{' '}
+                      {loadSheetEntries.length} entries
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500">
+                        Previous
+                      </button>
+                      <span className="px-3 py-1.5 rounded-lg bg-slate-900 text-white">
+                        1
+                      </span>
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500">
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {activeSection === 'loadsheet_log' && (
+                <>
+                  <section className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Loading Sheet Log
+                      </p>
+                      <h2 className="text-2xl sm:text-3xl font-semibold text-slate-800 mt-2">
+                        Assignment Log
+                      </h2>
+                      <p className="text-sm text-slate-500 mt-1">
+                        Track assigned load sheets and rider pickups.
+                      </p>
+                    </div>
+                    <div className="mt-5 grid gap-3 md:grid-cols-4">
+                      <div>
+                        <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Assignment No
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Assignment No"
+                          className="mt-2 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          From
+                        </label>
+                        <input
+                          type="date"
+                          defaultValue="2026-03-09"
+                          className="mt-2 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          To
+                        </label>
+                        <input
+                          type="date"
+                          defaultValue="2026-03-09"
+                          className="mt-2 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          type="button"
+                          className="btn-ripple w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 text-white text-sm font-semibold px-4 py-2.5 hover:bg-slate-800">
+                          <Search className="h-4 w-4" />
+                          Search
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_18px_45px_-34px_rgba(15,23,42,0.4)] backdrop-blur">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm text-slate-500">
+                        <span>Show</span>
+                        <select
+                          defaultValue="10"
+                          className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                          <option value="10">10</option>
+                          <option value="25">25</option>
+                          <option value="50">50</option>
+                        </select>
+                        <span>entries</span>
+                      </div>
+                      <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Search assignments"
+                          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200/70 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+                      <table className="w-full min-w-[720px] text-sm">
+                        <thead className="bg-slate-50">
+                          <tr className="text-left text-[11px] uppercase tracking-[0.2em] text-slate-400">
+                            <th className="px-4 py-3">Sr.No.</th>
+                            <th className="px-4 py-3">Assignment No#</th>
+                            <th className="px-4 py-3">Rider</th>
+                            <th className="px-4 py-3">Date</th>
+                            <th className="px-4 py-3">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {loadSheetLogEntries.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={5}
+                                className="px-4 py-8 text-center text-sm text-slate-500">
+                                No data available in table
+                              </td>
+                            </tr>
+                          ) : (
+                            loadSheetLogEntries.map((entry, index) => (
+                              <tr key={entry.assignmentNo} className="hover:bg-slate-50">
+                                <td className="px-4 py-4 text-slate-600">
+                                  {index + 1}
+                                </td>
+                                <td className="px-4 py-4 font-semibold text-slate-900">
+                                  {entry.assignmentNo}
+                                </td>
+                                <td className="px-4 py-4 text-slate-600">
+                                  {entry.rider}
+                                </td>
+                                <td className="px-4 py-4 text-slate-600">
+                                  {formatDateOnly(entry.date)}
+                                </td>
+                                <td className="px-4 py-4 text-slate-600">
+                                  {entry.action}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+                      <span>Showing 0 to 0 of 0 entries</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500">
+                          Previous
+                        </button>
+                        <span className="px-3 py-1.5 rounded-lg bg-slate-900 text-white">
+                          1
+                        </span>
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500">
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                </>
+              )}
+
+              {activeSection === 'shipper_advice' && (
+                <>
+                  <section className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Shipper Advice
+                        </p>
+                        <h2 className="text-2xl sm:text-3xl font-semibold text-slate-800 mt-2">
+                          Linehaul Advice Register
+                        </h2>
+                        <p className="text-sm text-slate-500 mt-1">
+                          Detailed advice slips for intercity movement.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-ripple inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border border-slate-200 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50">
+                        <Download className="h-4 w-4" />
+                        Export Advice
+                      </button>
+                    </div>
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm text-slate-500">
+                        <span>Show</span>
+                        <select
+                          defaultValue="10"
+                          className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                          <option value="10">10</option>
+                          <option value="25">25</option>
+                          <option value="50">50</option>
+                        </select>
+                        <span>entries</span>
+                      </div>
+                      <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Search advice"
+                          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200/70 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="mt-5 grid gap-3 sm:hidden">
+                    {shipperAdviceEntries.map((entry) => (
+                      <div
+                        key={entry.adviceNo}
+                        className="rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Advice No
+                            </p>
+                            <p className="text-base font-semibold text-slate-900 mt-1">
+                              {entry.adviceNo}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">
+                              {formatDateOnly(entry.date)}
+                            </p>
+                          </div>
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${shipperAdviceBadge(
+                              entry.status
+                            )}`}>
+                            {entry.status}
+                          </span>
+                        </div>
+                        <div className="mt-3 text-xs text-slate-600 space-y-2">
+                          <div>
+                            <span className="text-slate-400">Shipper:</span>{' '}
+                            {entry.shipper}
+                          </div>
+                          <div>
+                            <span className="text-slate-400">Route:</span>{' '}
+                            {entry.origin} → {entry.destination}
+                          </div>
+                          <div className="flex items-center justify-between text-sm text-slate-700">
+                            <span>Shipments: {entry.shipments}</span>
+                            <span>{formatWeight(entry.weightKg)} Kg</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm text-slate-700">
+                            <span>COD</span>
+                            <span className="font-semibold text-slate-900">
+                              Rs. {formatMoneyDecimal(entry.codAmount)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </section>
+
+                  <div className="mt-5 hidden sm:block rounded-2xl border border-slate-200 bg-slate-50/60">
+                    <div className="max-h-[70vh] overflow-auto">
+                      <table className="w-full min-w-[1050px] text-sm">
+                        <thead className="bg-slate-50 sticky top-0 z-10">
+                          <tr className="text-left text-[11px] uppercase tracking-[0.2em] text-slate-400">
+                            <th className="px-4 py-3">Advice No</th>
+                            <th className="px-4 py-3">Date</th>
+                            <th className="px-4 py-3">Shipper</th>
+                            <th className="px-4 py-3">Origin</th>
+                            <th className="px-4 py-3">Destination</th>
+                            <th className="px-4 py-3 text-center">Shipments</th>
+                            <th className="px-4 py-3">Weight</th>
+                            <th className="px-4 py-3">COD Amount</th>
+                            <th className="px-4 py-3">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 bg-white">
+                          {shipperAdviceEntries.map((entry) => (
+                            <tr key={entry.adviceNo} className="hover:bg-slate-50">
+                              <td className="px-4 py-4 font-semibold text-slate-900">
+                                {entry.adviceNo}
+                              </td>
+                              <td className="px-4 py-4 text-slate-700">
+                                {formatDateOnly(entry.date)}
+                              </td>
+                              <td className="px-4 py-4 text-slate-700">
+                                {entry.shipper}
+                              </td>
+                              <td className="px-4 py-4 text-slate-700">
+                                {entry.origin}
+                              </td>
+                              <td className="px-4 py-4 text-slate-700">
+                                {entry.destination}
+                              </td>
+                              <td className="px-4 py-4 text-center text-slate-700">
+                                {entry.shipments}
+                              </td>
+                              <td className="px-4 py-4 text-slate-700">
+                                {formatWeight(entry.weightKg)} Kg
+                              </td>
+                              <td className="px-4 py-4 text-slate-700 whitespace-nowrap">
+                                Rs. {formatMoneyDecimal(entry.codAmount)}
+                              </td>
+                              <td className="px-4 py-4">
+                                <span
+                                  className={`px-3 py-1 rounded-full text-xs font-semibold ${shipperAdviceBadge(
+                                    entry.status
+                                  )}`}>
+                                  {entry.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+                    <span>
+                      Showing 1 to {shipperAdviceEntries.length} of{' '}
+                      {shipperAdviceEntries.length} entries
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500">
+                        Previous
+                      </button>
+                      <span className="px-3 py-1.5 rounded-lg bg-slate-900 text-white">
+                        1
+                      </span>
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500">
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {activeSection === 'track' && (
+                <>
+                  <section className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Track Your Deliveries
+                        </p>
+                        <h2 className="text-2xl sm:text-3xl font-semibold text-slate-800 mt-2">
+                          Live Shipment Tracking
+                        </h2>
+                        <p className="text-sm text-slate-500 mt-1">
+                          Search by tracking number to view real-time movement.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-ripple inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border border-slate-200 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50">
+                        <Eye className="h-4 w-4" />
+                        Open Tracker
+                      </button>
+                    </div>
+
+                    <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                      <div className="lg:col-span-2 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Tracking Lookup
+                        </p>
+                        <div className="mt-3 grid gap-3 md:grid-cols-[1.2fr_1fr_auto]">
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                            <input
+                              type="text"
+                              placeholder="Enter tracking number"
+                              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200/70 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="Receiver phone (optional)"
+                            className="w-full px-3 py-2.5 rounded-xl border border-slate-200/70 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <button
+                            type="button"
+                            className="btn-ripple inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 text-white text-sm font-semibold px-4 py-2.5 hover:bg-slate-800">
+                            <Search className="h-4 w-4" />
+                            Track
+                          </button>
+                        </div>
+                        <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                          <span className="px-3 py-1 rounded-full bg-slate-50 border border-slate-200">
+                            Tip: paste multiple IDs separated by comma.
+                          </span>
+                          <span className="px-3 py-1 rounded-full bg-slate-50 border border-slate-200">
+                            Latest updates every 15 minutes.
+                          </span>
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200/70 bg-gradient-to-br from-slate-900 to-slate-800 p-5 text-white shadow-sm">
+                        <p className="text-xs uppercase tracking-[0.2em] text-white/60">
+                          Tracking Snapshot
+                        </p>
+                        <div className="mt-4 space-y-3 text-sm">
+                          <div className="flex items-center justify-between">
+                            <span>Total Shipments</span>
+                            <span className="font-semibold">{totalOrders}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span>Delivered</span>
+                            <span className="font-semibold">{deliveredOrders}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span>In Transit</span>
+                            <span className="font-semibold">{inTransitOrders}</span>
+                          </div>
+                        </div>
+                        <div className="mt-4 rounded-xl bg-white/10 px-3 py-2 text-xs text-white/80">
+                          Track from pickup to doorstep with one view.
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="mt-5 grid gap-3 sm:hidden">
+                    {sortedBookings.length === 0 ? (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+                        No shipments to track yet.
+                      </div>
+                    ) : (
+                      sortedBookings.slice(0, 8).map((booking) => {
+                        const lastUpdate =
+                          booking.statusHistory?.[
+                            booking.statusHistory.length - 1
+                          ]?.at ?? booking.createdAt;
+                        return (
+                          <div
+                            key={booking.trackingId}
+                            className="rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                                  Tracking
+                                </p>
+                                <p className="text-base font-semibold text-slate-900 mt-1">
+                                  {booking.trackingId}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  {formatDateTime(lastUpdate)}
+                                </p>
+                              </div>
+                              <span
+                                className={`px-3 py-1 rounded-full text-xs font-semibold ${statusBadge(
+                                  booking.status
+                                )}`}>
+                                {statusLabel(booking.status)}
+                              </span>
+                            </div>
+                            <div className="mt-3 text-xs text-slate-600">
+                              <div>
+                                <span className="text-slate-400">Receiver:</span>{' '}
+                                {booking.receiverName || '-'}
+                              </div>
+                              <div>
+                                <span className="text-slate-400">City:</span>{' '}
+                                {booking.receiverCity || '-'}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleViewBooking(booking.trackingId)}
+                              className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                              View Tracking
+                              <ArrowUpRight className="h-4 w-4" />
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </section>
+
+                  <div className="mt-5 hidden sm:block rounded-2xl border border-slate-200 bg-slate-50/60">
+                    <div className="max-h-[70vh] overflow-auto">
+                      <table className="w-full min-w-[980px] text-sm">
+                        <thead className="bg-slate-50 sticky top-0 z-10">
+                          <tr className="text-left text-[11px] uppercase tracking-[0.2em] text-slate-400">
+                            <th className="px-4 py-3">Tracking No</th>
+                            <th className="px-4 py-3">Receiver</th>
+                            <th className="px-4 py-3">City</th>
+                            <th className="px-4 py-3">Last Update</th>
+                            <th className="px-4 py-3">Status</th>
+                            <th className="px-4 py-3 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 bg-white">
+                          {sortedBookings.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className="px-4 py-8 text-center text-sm text-slate-500">
+                                No shipments to track yet.
+                              </td>
+                            </tr>
+                          ) : (
+                            sortedBookings.slice(0, 12).map((booking) => {
+                              const lastUpdate =
+                                booking.statusHistory?.[
+                                  booking.statusHistory.length - 1
+                                ]?.at ?? booking.createdAt;
+                              return (
+                                <tr key={booking.trackingId} className="hover:bg-slate-50">
+                                  <td className="px-4 py-4 font-semibold text-slate-900">
+                                    {booking.trackingId}
+                                  </td>
+                                  <td className="px-4 py-4 text-slate-700">
+                                    {booking.receiverName || '-'}
+                                  </td>
+                                  <td className="px-4 py-4 text-slate-700">
+                                    {booking.receiverCity || '-'}
+                                  </td>
+                                  <td className="px-4 py-4 text-slate-600">
+                                    {formatDateTime(lastUpdate)}
+                                  </td>
+                                  <td className="px-4 py-4">
+                                    <span
+                                      className={`px-3 py-1 rounded-full text-xs font-semibold ${statusBadge(
+                                        booking.status
+                                      )}`}>
+                                      {statusLabel(booking.status)}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-4 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleViewBooking(booking.trackingId)
+                                      }
+                                      className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700 hover:text-slate-900">
+                                      View
+                                      <ArrowUpRight className="h-4 w-4" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {activeSection === 'edit_profile' && (
+                <>
+                  <section className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Edit Profile
+                        </p>
+                        <h2 className="text-2xl sm:text-3xl font-semibold text-slate-800 mt-2">
+                          Update Your Account Details
+                        </h2>
+                        <p className="text-sm text-slate-500 mt-1">
+                          Keep your email and contact info accurate for login and delivery updates.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs font-semibold">
+                        <span
+                          className={`px-3 py-1 rounded-full ${
+                            auth.currentUser?.emailVerified
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}>
+                          {auth.currentUser?.emailVerified
+                            ? 'Email Verified'
+                            : 'Email Pending'}
+                        </span>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="grid gap-6 lg:grid-cols-12">
+                    <div className="lg:col-span-8 space-y-6">
+                      <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Company Details
+                        </p>
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Company Name
+                            </label>
+                            <input
+                              name="companyName"
+                              value={profileForm.companyName}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Legal Name
+                            </label>
+                            <input
+                              name="companyLegalName"
+                              value={profileForm.companyLegalName}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Business Type
+                            </label>
+                            <select
+                              name="businessType"
+                              value={profileForm.businessType}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}>
+                              <option value="">Select business type</option>
+                              {BUSINESS_TYPES.map((type) => (
+                                <option key={type} value={type}>
+                                  {type}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Website
+                            </label>
+                            <input
+                              name="website"
+                              value={profileForm.website}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Contact Details
+                        </p>
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Contact Name
+                            </label>
+                            <input
+                              name="contactName"
+                              value={profileForm.contactName}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Phone
+                            </label>
+                            <input
+                              name="phone"
+                              value={profileForm.phone}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Alternate Phone
+                            </label>
+                            <input
+                              name="altPhone"
+                              value={profileForm.altPhone}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Login Email
+                            </label>
+                            <input
+                              name="email"
+                              value={profileForm.email}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Address
+                            </label>
+                            <input
+                              name="address"
+                              value={profileForm.address}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Shipping Details
+                        </p>
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              City
+                            </label>
+                            <select
+                              name="city"
+                              value={profileForm.city}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}>
+                              <option value="">Select city</option>
+                              {SERVICE_CITIES.map((city) => (
+                                <option key={city} value={city}>
+                                  {city}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Pickup Timings
+                            </label>
+                            <input
+                              name="pickupTimings"
+                              value={profileForm.pickupTimings}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Monthly Shipments
+                            </label>
+                            <input
+                              name="monthlyShipment"
+                              value={profileForm.monthlyShipment}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              CNIC
+                            </label>
+                            <input
+                              name="cnic"
+                              value={profileForm.cnic}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Special Instructions
+                            </label>
+                            <textarea
+                              name="specialInstructions"
+                              value={profileForm.specialInstructions}
+                              onChange={handleProfileChange}
+                              rows={3}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Google Map Pin
+                            </label>
+                            <input
+                              name="googleMapPin"
+                              value={profileForm.googleMapPin}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Bank Details
+                        </p>
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Bank Name
+                            </label>
+                            <input
+                              name="bankName"
+                              value={profileForm.bankName}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Account Title
+                            </label>
+                            <input
+                              name="accountTitle"
+                              value={profileForm.accountTitle}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Account Number
+                            </label>
+                            <input
+                              name="accountNumber"
+                              value={profileForm.accountNumber}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              IBAN
+                            </label>
+                            <input
+                              name="iban"
+                              value={profileForm.iban}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Swift Code
+                            </label>
+                            <input
+                              name="swiftCode"
+                              value={profileForm.swiftCode}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Branch Name
+                            </label>
+                            <input
+                              name="branchName"
+                              value={profileForm.branchName}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                              Branch Code
+                            </label>
+                            <input
+                              name="branchCode"
+                              value={profileForm.branchCode}
+                              onChange={handleProfileChange}
+                              className={`${profileInput} mt-2`}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="lg:col-span-4 space-y-6">
+                      <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Login Email Status
+                        </p>
+                        <p className="text-sm text-slate-700 mt-3">
+                          {auth.currentUser?.email || profileForm.email || '-'}
+                        </p>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {auth.currentUser?.emailVerified ? (
+                            <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
+                              Verified
+                            </span>
+                          ) : (
+                            <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+                              Verification Required
+                            </span>
+                          )}
+                          {!auth.currentUser?.emailVerified && (
+                            <button
+                              type="button"
+                              onClick={handleSendVerification}
+                              className="text-xs font-semibold text-slate-700 underline underline-offset-4">
+                              Send Verification Email
+                            </button>
+                          )}
+                        </div>
+                        {profileEmailNotice && (
+                          <p className="mt-3 text-xs text-slate-500">
+                            {profileEmailNotice}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-900 text-white p-5 shadow-sm">
+                        <p className="text-xs uppercase tracking-[0.2em] text-white/60">
+                          Update Password
+                        </p>
+                        <div className="mt-4 space-y-3">
+                          <input
+                            type="password"
+                            value={newAccountPassword}
+                            onChange={(e) => {
+                              setNewAccountPassword(e.target.value);
+                              setAccountPasswordError('');
+                              setAccountPasswordSuccess('');
+                            }}
+                            placeholder="New password"
+                            className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/40"
+                          />
+                          <input
+                            type="password"
+                            value={confirmAccountPassword}
+                            onChange={(e) => {
+                              setConfirmAccountPassword(e.target.value);
+                              setAccountPasswordError('');
+                              setAccountPasswordSuccess('');
+                            }}
+                            placeholder="Confirm password"
+                            className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/40"
+                          />
+                          {accountPasswordError && (
+                            <p className="text-xs text-rose-200">
+                              {accountPasswordError}
+                            </p>
+                          )}
+                          {accountPasswordSuccess && (
+                            <p className="text-xs text-emerald-200">
+                              {accountPasswordSuccess}
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={handlePasswordUpdate}
+                            className="w-full inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-white text-slate-900 text-sm font-semibold hover:bg-slate-100 transition">
+                            Save new password
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Save Updates
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleProfileSave}
+                          disabled={profileSaving}
+                          className={`mt-4 w-full inline-flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-semibold transition ${
+                            profileSaving
+                              ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                              : 'bg-slate-900 text-white hover:bg-slate-800'
+                          }`}>
+                          {profileSaving ? 'Saving...' : 'Save Changes'}
+                        </button>
+                        {profileError && (
+                          <p className="mt-3 text-xs text-rose-600">
+                            {profileError}
+                          </p>
+                        )}
+                        {profileSuccess && (
+                          <p className="mt-3 text-xs text-emerald-600">
+                            {profileSuccess}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+                </>
+              )}
+
+              {activeSection === 'payments' && (
+                <>
+                  <section className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Payment History
+                        </p>
+                        <h2 className="text-2xl sm:text-3xl font-semibold text-slate-800 mt-2">
+                          COD Settlement Overview
+                        </h2>
+                        <p className="text-sm text-slate-500 mt-1">
+                          Track delivery status, COD totals, and settlements.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-ripple inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border border-slate-200 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50">
+                        <Download className="h-4 w-4" />
+                        Export History
+                      </button>
+                    </div>
+
+                    <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      {[
+                        {
+                          label: 'Total COD',
+                          value: `Rs. ${formatMoney(paymentTotals.total)}`
+                        },
+                        {
+                          label: 'Received',
+                          value: `Rs. ${formatMoney(paymentTotals.received)}`
+                        },
+                        {
+                          label: 'Pending',
+                          value: `Rs. ${formatMoney(paymentTotals.pending)}`
+                        },
+                        {
+                          label: 'COD Shipments',
+                          value: paymentBookings.length
+                        }
+                      ].map((stat) => (
+                        <div
+                          key={stat.label}
+                          className="rounded-2xl bg-white border border-slate-200/60 p-4 shadow-sm">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            {stat.label}
+                          </p>
+                          <p className="text-lg font-semibold text-slate-900 mt-2">
+                            {stat.value}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm text-slate-500">
+                        <span>Show</span>
+                        <select
+                          defaultValue="10"
+                          className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                          <option value="10">10</option>
+                          <option value="25">25</option>
+                          <option value="50">50</option>
+                        </select>
+                        <span>entries</span>
+                      </div>
+                      <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Search payments"
+                          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200/70 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="mt-5 grid gap-3 sm:hidden">
+                    {paymentBookings.length === 0 ? (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+                        No COD payment history yet.
+                      </div>
+                    ) : (
+                      paymentBookings.slice(0, 8).map((booking) => {
+                        const paymentDate = getPaymentDate(booking);
+                        const codValue = Number(booking.codAmount || 0);
+                        return (
+                          <div
+                            key={booking.trackingId}
+                            className="rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                                  Tracking
+                                </p>
+                                <p className="text-base font-semibold text-slate-900 mt-1">
+                                  {booking.trackingId}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  {formatDateOnly(paymentDate)}
+                                </p>
+                              </div>
+                              <span
+                                className={`px-3 py-1 rounded-full text-xs font-semibold ${statusBadge(
+                                  booking.status
+                                )}`}>
+                                {getPaymentStatusLabel(booking)}
+                              </span>
+                            </div>
+                            <div className="mt-3 text-xs text-slate-600 space-y-1">
+                              <div>
+                                <span className="text-slate-400">Receiver:</span>{' '}
+                                {booking.receiverName || '-'}
+                              </div>
+                              <div>
+                                <span className="text-slate-400">City:</span>{' '}
+                                {booking.receiverCity || '-'}
+                              </div>
+                            </div>
+                            <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
+                              <span>COD</span>
+                              <span className="font-semibold text-slate-900">
+                                Rs. {formatMoney(Number.isNaN(codValue) ? 0 : codValue)}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleViewBooking(booking.trackingId)}
+                              className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                              View Tracking
+                              <ArrowUpRight className="h-4 w-4" />
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </section>
+
+                  <div className="mt-5 hidden sm:block rounded-2xl border border-slate-200 bg-slate-50/60">
+                    <div className="max-h-[70vh] overflow-auto">
+                      <table className="w-full min-w-[1050px] text-sm">
+                        <thead className="bg-slate-50 sticky top-0 z-10">
+                          <tr className="text-left text-[11px] uppercase tracking-[0.2em] text-slate-400">
+                            <th className="px-4 py-3">Payment Date</th>
+                            <th className="px-4 py-3">Tracking No</th>
+                            <th className="px-4 py-3">Receiver</th>
+                            <th className="px-4 py-3">City</th>
+                            <th className="px-4 py-3">COD Amount</th>
+                            <th className="px-4 py-3">Status</th>
+                            <th className="px-4 py-3">Last Update</th>
+                            <th className="px-4 py-3 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 bg-white">
+                          {paymentBookings.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={8}
+                                className="px-4 py-8 text-center text-sm text-slate-500">
+                                No COD payment history yet.
+                              </td>
+                            </tr>
+                          ) : (
+                            paymentBookings.slice(0, 12).map((booking) => {
+                              const paymentDate = getPaymentDate(booking);
+                              const lastUpdate =
+                                booking.statusHistory?.[
+                                  booking.statusHistory.length - 1
+                                ]?.at ?? booking.createdAt;
+                              const codValue = Number(booking.codAmount || 0);
+                              return (
+                                <tr key={booking.trackingId} className="hover:bg-slate-50">
+                                  <td className="px-4 py-4 text-slate-700 font-semibold">
+                                    {formatDateOnly(paymentDate)}
+                                  </td>
+                                  <td className="px-4 py-4 font-semibold text-slate-900">
+                                    {booking.trackingId}
+                                  </td>
+                                  <td className="px-4 py-4 text-slate-700">
+                                    {booking.receiverName || '-'}
+                                  </td>
+                                  <td className="px-4 py-4 text-slate-700">
+                                    {booking.receiverCity || '-'}
+                                  </td>
+                                  <td className="px-4 py-4 text-slate-700 whitespace-nowrap">
+                                    Rs. {formatMoney(Number.isNaN(codValue) ? 0 : codValue)}
+                                  </td>
+                                  <td className="px-4 py-4">
+                                    <span
+                                      className={`px-3 py-1 rounded-full text-xs font-semibold ${statusBadge(
+                                        booking.status
+                                      )}`}>
+                                      {getPaymentStatusLabel(booking)}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-4 text-slate-600">
+                                    {formatDateTime(lastUpdate)}
+                                  </td>
+                                  <td className="px-4 py-4 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleViewBooking(booking.trackingId)}
+                                      className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700 hover:text-slate-900">
+                                      View
+                                      <ArrowUpRight className="h-4 w-4" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+                    <span>
+                      Showing 1 to {Math.min(12, paymentBookings.length)} of{' '}
+                      {paymentBookings.length} entries
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500">
+                        Previous
+                      </button>
+                      <span className="px-3 py-1.5 rounded-lg bg-slate-900 text-white">
+                        1
+                      </span>
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500">
+                        Next
+                      </button>
+                    </div>
+                  </div>
                 </>
               )}
 
@@ -2262,13 +4217,13 @@ export function CodRegistration() {
                             <div
                               key={booking.trackingId}
                               className="group rounded-2xl bg-white border border-slate-200/60 p-6 shadow-sm transition hover:shadow-md hover:-translate-y-1 space-y-5">
-                              <div className="flex items-start justify-between gap-4">
+                              <div className="flex flex-wrap items-start justify-between gap-4">
                                 <div>
-                                  <p className="text-sm uppercase tracking-[0.2em] text-slate-400">
+                                  <p className="text-xs sm:text-sm uppercase tracking-[0.2em] text-slate-400">
                                     Tracking ID
                                   </p>
                                   <div className="flex flex-wrap items-center gap-2 mt-2">
-                                    <h3 className="text-xl font-bold text-slate-900 break-words">
+                                    <h3 className="text-lg sm:text-xl font-bold text-slate-900 break-words">
                                       {booking.trackingId}
                                     </h3>
                                     <button
@@ -2282,7 +4237,7 @@ export function CodRegistration() {
                                         : 'Copy'}
                                     </button>
                                   </div>
-                                  <p className="text-base text-slate-600 mt-2 break-words">
+                                  <p className="text-sm sm:text-base text-slate-600 mt-2 break-words">
                                     {booking.senderCity} →{' '}
                                     {booking.receiverCity}
                                   </p>
@@ -2293,14 +4248,14 @@ export function CodRegistration() {
                                     Updated {formatDateTime(lastUpdate)}
                                   </div>
                                 </div>
-                                <div className="flex flex-col items-end gap-2">
+                                <div className="flex w-full sm:w-auto flex-col items-start sm:items-end gap-2">
                                   <span
                                     className={`px-3 py-1 rounded-full text-xs font-semibold tracking-wide ${statusBadge(
                                       booking.status
                                     )}`}>
                                     {statusLabel(booking.status)}
                                   </span>
-                                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                                  <div className="flex items-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition">
                                     <button
                                       type="button"
                                       onClick={() =>
@@ -2324,8 +4279,8 @@ export function CodRegistration() {
                               </div>
 
                               <div className="grid gap-3 md:grid-cols-2 text-sm">
-                                <div className="rounded-2xl bg-slate-50/80 p-4 ring-1 ring-slate-200/40">
-                                  <p className="text-sm uppercase tracking-[0.2em] text-slate-400">
+                                <div className="rounded-2xl bg-slate-50/80 p-4 ring-1 ring-slate-200/40 break-words">
+                                  <p className="text-xs sm:text-sm uppercase tracking-[0.2em] text-slate-400">
                                     Sender
                                   </p>
                                   <h3 className="text-base font-semibold text-slate-900 mt-2">
@@ -2338,8 +4293,8 @@ export function CodRegistration() {
                                     {booking.senderAddress || '-'}
                                   </p>
                                 </div>
-                                <div className="rounded-2xl bg-slate-50/80 p-4 ring-1 ring-slate-200/40">
-                                  <p className="text-sm uppercase tracking-[0.2em] text-slate-400">
+                                <div className="rounded-2xl bg-slate-50/80 p-4 ring-1 ring-slate-200/40 break-words">
+                                  <p className="text-xs sm:text-sm uppercase tracking-[0.2em] text-slate-400">
                                     Receiver
                                   </p>
                                   <h3 className="text-base font-semibold text-slate-900 mt-2">
@@ -2355,24 +4310,24 @@ export function CodRegistration() {
                               </div>
 
                               <div className="grid gap-3 grid-cols-2 md:grid-cols-4 text-sm">
-                                <div className="rounded-2xl bg-slate-50/80 p-3 ring-1 ring-slate-200/40">
-                                  <p className="text-sm uppercase tracking-[0.2em] text-slate-400">
+                                <div className="rounded-2xl bg-slate-50/80 p-3 ring-1 ring-slate-200/40 break-words">
+                                  <p className="text-xs sm:text-sm uppercase tracking-[0.2em] text-slate-400">
                                     Service
                                   </p>
                                   <h3 className="text-base font-semibold text-slate-900 mt-2">
                                     {booking.serviceTitle}
                                   </h3>
                                 </div>
-                                <div className="rounded-2xl bg-slate-50/80 p-3 ring-1 ring-slate-200/40">
-                                  <p className="text-sm uppercase tracking-[0.2em] text-slate-400">
+                                <div className="rounded-2xl bg-slate-50/80 p-3 ring-1 ring-slate-200/40 break-words">
+                                  <p className="text-xs sm:text-sm uppercase tracking-[0.2em] text-slate-400">
                                     Weight
                                   </p>
                                   <h3 className="text-base font-semibold text-slate-900 mt-2">
                                     {booking.weightKg.toFixed(3)} kg
                                   </h3>
                                 </div>
-                                <div className="rounded-2xl bg-slate-50/80 p-3 ring-1 ring-slate-200/40">
-                                  <p className="text-sm uppercase tracking-[0.2em] text-slate-400">
+                                <div className="rounded-2xl bg-slate-50/80 p-3 ring-1 ring-slate-200/40 break-words">
+                                  <p className="text-xs sm:text-sm uppercase tracking-[0.2em] text-slate-400">
                                     COD
                                   </p>
                                   <h3 className="text-base font-semibold text-slate-900 mt-2">
@@ -2381,8 +4336,8 @@ export function CodRegistration() {
                                       : 'Rs. 0'}
                                   </h3>
                                 </div>
-                                <div className="rounded-2xl bg-slate-50/80 p-3 ring-1 ring-slate-200/40">
-                                  <p className="text-sm uppercase tracking-[0.2em] text-slate-400">
+                                <div className="rounded-2xl bg-slate-50/80 p-3 ring-1 ring-slate-200/40 break-words">
+                                  <p className="text-xs sm:text-sm uppercase tracking-[0.2em] text-slate-400">
                                     Total
                                   </p>
                                   <h3 className="text-base font-semibold text-slate-900 mt-2">
@@ -2392,7 +4347,7 @@ export function CodRegistration() {
                               </div>
 
                               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm">
-                                <h3 className="text-slate-700 text-base font-semibold">
+                                <h3 className="text-slate-700 text-base font-semibold break-words">
                                   Delivery Code{' '}
                                   <span className="font-semibold text-slate-900">
                                     {booking.deliveryCode}
@@ -2480,7 +4435,57 @@ export function CodRegistration() {
                       </button>
                     </div>
 
-                    <div className="mt-5 overflow-x-auto">
+                    <div className="mt-5 grid gap-3 sm:hidden">
+                      {sortedBookings.map((booking) => {
+                        const codValue = Number(booking.codAmount || 0);
+                        return (
+                          <div
+                            key={booking.trackingId}
+                            className="rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                                  Tracking
+                                </p>
+                                <p className="text-base font-semibold text-slate-900 mt-1">
+                                  {booking.trackingId}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  {formatDateTime(booking.createdAt)}
+                                </p>
+                              </div>
+                              <span
+                                className={`px-3 py-1 rounded-full text-xs font-semibold ${statusBadge(
+                                  booking.status
+                                )}`}>
+                                {statusLabel(booking.status)}
+                              </span>
+                            </div>
+                            <div className="mt-3 space-y-2 text-sm text-slate-600">
+                              <div className="flex items-center justify-between">
+                                <span>Shipping</span>
+                                <span className="font-semibold text-slate-900">
+                                  Rs. {formatMoney(booking.shippingCharge || 0)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span>COD</span>
+                                <span className="font-semibold text-slate-900">
+                                  Rs. {formatMoney(Number.isNaN(codValue) ? 0 : codValue)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {sortedBookings.length === 0 && (
+                        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+                          No wallet activity yet. Book a shipment to generate charges.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-5 hidden sm:block overflow-x-auto">
                       <table className="w-full min-w-[720px] text-sm sm:text-base">
                         <thead>
                           <tr className="text-left text-slate-400 text-xs sm:text-sm uppercase tracking-[0.2em]">
@@ -2677,9 +4682,9 @@ export function CodRegistration() {
                   )}
                 </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-slate-900 text-white p-5 shadow-sm lg:col-span-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-900 text-white p-4 sm:p-5 shadow-sm lg:col-span-2">
                 <div className="flex items-center justify-between">
-                  <div className="text-2xl font-semibold">Credentials</div>
+                  <div className="text-lg sm:text-2xl font-semibold">Credentials</div>
                     <button
                       type="button"
                       onClick={() => toggleSection('credentials')}
@@ -2692,9 +4697,9 @@ export function CodRegistration() {
                     </button>
                   </div>
                 {!collapsedSections.credentials && (
-                  <div className="mt-4 text-lg text-white/80 space-y-2">
-                    <p>Email: {loginAccount.email || '-'}</p>
-                      <div className="flex items-center gap-3">
+                  <div className="mt-4 text-sm sm:text-lg text-white/80 space-y-2">
+                    <p className="break-words">Email: {loginAccount.email || '-'}</p>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                         <input
                           type={showAccountPassword ? 'text' : 'password'}
                           value="********"
@@ -2706,7 +4711,7 @@ export function CodRegistration() {
                           onClick={() =>
                             setShowAccountPassword((prev) => !prev)
                           }
-                          className="text-xs font-semibold text-white/70 hover:text-white">
+                          className="w-full sm:w-auto text-xs font-semibold text-white/70 hover:text-white">
                           {showAccountPassword ? 'Hide' : 'Show'}
                         </button>
                       </div>
@@ -2747,7 +4752,7 @@ export function CodRegistration() {
                       <button
                         type="button"
                         onClick={handlePasswordUpdate}
-                        className="mt-2 inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-white text-slate-900 text-sm font-semibold hover:bg-slate-100 transition">
+                        className="mt-2 w-full sm:w-auto inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-white text-slate-900 text-sm font-semibold hover:bg-slate-100 transition">
                         Save new password
                       </button>
                     </div>

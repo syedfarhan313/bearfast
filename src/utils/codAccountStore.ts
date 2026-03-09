@@ -218,6 +218,14 @@ export const updateCodAccountLastLogin = async (id: string) => {
   await updateDoc(ref, { lastLoginAt: new Date().toISOString() });
 };
 
+export const updateCodAccountProfile = async (
+  id: string,
+  updates: Partial<CodAccountRequest>
+) => {
+  const ref = doc(db, COLLECTION, id);
+  await updateDoc(ref, updates);
+};
+
 export const clearCodAccounts = async () => {
   const snapshot = await getDocs(collection(db, COLLECTION));
   if (snapshot.empty) return;

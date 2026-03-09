@@ -3572,13 +3572,13 @@ export function Admin() {
                     <div
                       key={account.id}
                       style={{ animationDelay: `${index * 0.04}s` }}
-                      className={`rounded-3xl bg-white border border-slate-200 shadow-sm p-6 space-y-5 transition hover:shadow-xl hover:-translate-y-1 animate-fade-up ${highlightClass}`}>
+                      className={`rounded-3xl bg-white border border-slate-200 shadow-sm p-6 space-y-5 transition hover:shadow-xl hover:-translate-y-1 animate-fade-up overflow-hidden ${highlightClass}`}>
                     <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                           Registration ID
                         </p>
-                        <p className="text-lg font-semibold text-slate-900 mt-2">
+                        <p className="text-base sm:text-lg font-semibold text-slate-900 mt-2 break-all">
                           {account.id}
                         </p>
                         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -3596,7 +3596,7 @@ export function Admin() {
                     </div>
 
                     <div className="grid gap-4 md:grid-cols-2">
-                      <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
+                      <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4 break-words">
                         <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
                           <Building2 className="h-4 w-4" />
                           Company
@@ -3614,7 +3614,7 @@ export function Admin() {
                           {account.website || '-'}
                         </p>
                       </div>
-                      <div className="rounded-2xl border border-violet-100 bg-violet-50/70 p-4">
+                      <div className="rounded-2xl border border-violet-100 bg-violet-50/70 p-4 break-words">
                         <div className="flex items-center gap-2 text-sm font-semibold text-violet-700">
                           <Phone className="h-4 w-4" />
                           Contact
@@ -3737,7 +3737,7 @@ export function Admin() {
                     )}
 
                     <div className="grid gap-4 md:grid-cols-2">
-                      <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+                      <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 break-words">
                         <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
                           <BadgeCheck className="h-4 w-4" />
                           Bank Details
@@ -3762,7 +3762,7 @@ export function Admin() {
                           {account.branchCode || ''}
                         </p>
                       </div>
-                      <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-4">
+                      <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-4 break-words">
                         <div className="flex items-center gap-2 text-sm font-semibold text-amber-700">
                           <MapPin className="h-4 w-4" />
                           Shipping Info
@@ -3791,28 +3791,28 @@ export function Admin() {
                     <div className="flex flex-wrap gap-3">
                       <button
                         onClick={() => setSelectedAccountId(account.id)}
-                        className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition">
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition">
                         Open Profile
                       </button>
                       <button
                         onClick={() =>
                           handleCodStatusChange(account.id, 'approved')
                         }
-                        className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-emerald-600 shadow-sm hover:shadow-md transition">
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-emerald-600 shadow-sm hover:shadow-md transition">
                         Approve
                       </button>
                       <button
                         onClick={() =>
                           handleCodStatusChange(account.id, 'pending')
                         }
-                        className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-amber-400 to-orange-500 shadow-sm hover:shadow-md transition">
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-amber-400 to-orange-500 shadow-sm hover:shadow-md transition">
                         Hold
                       </button>
                       <button
                         onClick={() =>
                           handleCodStatusChange(account.id, 'rejected')
                         }
-                        className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-rose-500 to-red-600 shadow-sm hover:shadow-md transition">
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-rose-500 to-red-600 shadow-sm hover:shadow-md transition">
                         Reject
                       </button>
                     </div>
@@ -4220,7 +4220,7 @@ export function Admin() {
 
               <section className="rounded-2xl border border-slate-200 bg-white/70 backdrop-blur p-4 shadow-sm">
                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 text-sm font-semibold text-slate-700">
                     Province
                     <select
                       value={riderProvinceFilter}
@@ -4231,7 +4231,7 @@ export function Admin() {
                           setRiderCityFilter('all');
                         }
                       }}
-                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                       <option value="all">All</option>
                       <option value="punjab">Punjab</option>
                       <option value="sindh">Sindh</option>
@@ -4239,12 +4239,12 @@ export function Admin() {
                       <option value="balochistan">Balochistan</option>
                     </select>
                   </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 text-sm font-semibold text-slate-700">
                     Status
                     <select
                       value={riderStatusFilter}
                       onChange={(e) => setRiderStatusFilter(e.target.value)}
-                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                       <option value="all">All</option>
                       {riderStatusOptions.map((status) => (
                         <option key={status.key} value={status.key}>
@@ -4253,7 +4253,7 @@ export function Admin() {
                       ))}
                     </select>
                   </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 text-sm font-semibold text-slate-700">
                     City
                     <select
                       value={riderCityFilter}
@@ -4263,7 +4263,7 @@ export function Admin() {
                           setRiderProvinceFilter('all');
                         }
                       }}
-                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                       <option value="all">All</option>
                       {riderCityOptions.map((city) => (
                         <option key={city} value={city}>
@@ -4947,7 +4947,7 @@ export function Admin() {
 
               <section className="rounded-2xl border border-slate-200 bg-white/70 backdrop-blur p-4 shadow-sm">
                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 text-sm font-semibold text-slate-700">
                     Province
                     <select
                       value={riderProvinceFilter}
@@ -4958,7 +4958,7 @@ export function Admin() {
                           setRiderCityFilter('all');
                         }
                       }}
-                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                       <option value="all">All</option>
                       <option value="punjab">Punjab</option>
                       <option value="sindh">Sindh</option>
@@ -4966,12 +4966,12 @@ export function Admin() {
                       <option value="balochistan">Balochistan</option>
                     </select>
                   </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 text-sm font-semibold text-slate-700">
                     Status
                     <select
                       value={riderStatusFilter}
                       onChange={(e) => setRiderStatusFilter(e.target.value)}
-                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                       <option value="all">All</option>
                       {riderStatusOptions.map((status) => (
                         <option key={status.key} value={status.key}>
@@ -4980,7 +4980,7 @@ export function Admin() {
                       ))}
                     </select>
                   </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 text-sm font-semibold text-slate-700">
                     City
                     <select
                       value={riderCityFilter}
@@ -4990,7 +4990,7 @@ export function Admin() {
                           setRiderProvinceFilter('all');
                         }
                       }}
-                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                      className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                       <option value="all">All</option>
                       {riderCityOptions.map((city) => (
                         <option key={city} value={city}>
@@ -5275,15 +5275,15 @@ export function Admin() {
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
                         <button
                           onClick={() => handlePrintSlip(booking)}
-                          className="px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50">
+                          className="w-full sm:w-auto px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50">
                           Print Slip
                         </button>
                         <button
                           onClick={() => handleDownloadSlip(booking)}
-                          className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800">
+                          className="w-full sm:w-auto px-3 py-2 rounded-xl text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800">
                           Download Slip
                         </button>
                         {booking.merchantId && isCod && (
@@ -5292,7 +5292,7 @@ export function Admin() {
                               setActivePanel('cod');
                               setSelectedAccountId(booking.merchantId || null);
                             }}
-                            className="px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600">
+                            className="w-full sm:w-auto px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600">
                             Open Merchant
                           </button>
                         )}

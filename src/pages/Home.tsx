@@ -99,26 +99,26 @@ export function Home() {
           <div className="max-w-2xl text-center lg:text-left">
             {/* Heading */}
             <h1 className="mb-6">
-              <span className="block text-4xl sm:text-5xl lg:text-8xl font-black text-slate-800 leading-none">
+              <span className="block text-3xl sm:text-5xl lg:text-8xl font-black text-slate-800 leading-tight">
                 Delivering Excellence
               </span>
-              <span className="block text-4xl sm:text-5xl lg:text-8xl font-black text-orange-500 leading-none">
+              <span className="block text-3xl sm:text-5xl lg:text-8xl font-black text-orange-500 leading-tight">
                 Across Pakistan
               </span>
             </h1>
 
             {/* CTA Buttons */}
-            <div className="flex flex-wrap justify-center lg:justify-start gap-4 mb-10">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap justify-center lg:justify-start gap-4 mb-10">
               <Link
                 to="/book"
-                className="inline-flex items-center gap-2 px-6 sm:px-8 py-3.5 sm:py-4 bg-orange-500 text-white font-bold rounded-full hover:bg-orange-600 transition-colors shadow-lg shadow-orange-200">
+                className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-6 sm:px-8 py-3.5 sm:py-4 bg-orange-500 text-white font-bold rounded-full hover:bg-orange-600 transition-colors shadow-lg shadow-orange-200">
 
                 Book a Parcel
                 <ArrowRightIcon className="w-5 h-5" />
               </Link>
               <Link
                 to="/tracking"
-                className="inline-flex items-center gap-2 px-6 sm:px-8 py-3.5 sm:py-4 bg-transparent text-slate-800 font-bold rounded-full border-2 border-slate-800 hover:bg-slate-800 hover:text-white transition-colors">
+                className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-6 sm:px-8 py-3.5 sm:py-4 bg-transparent text-slate-800 font-bold rounded-full border-2 border-slate-800 hover:bg-slate-800 hover:text-white transition-colors">
 
                 Track Your Parcel
               </Link>

@@ -58,6 +58,9 @@ const RiderPortal = React.lazy(() =>
 const RiderPanel = React.lazy(() =>
   import('./pages/RiderPanel').then((mod) => ({ default: mod.RiderPanel }))
 );
+const Logout = React.lazy(() =>
+  import('./pages/Logout').then((mod) => ({ default: mod.Logout }))
+);
 
 function AppLayout() {
   const location = useLocation();
@@ -119,6 +122,7 @@ function AppLayout() {
             <Route path="/cod-registration" element={<CodRegistration />} />
             <Route path="/label" element={<ShipmentLabel />} />
             <Route path="/alerts" element={<Alerts />} />
+            <Route path="/logout" element={<Logout />} />
           </Routes>
         </Suspense>
       </div>
